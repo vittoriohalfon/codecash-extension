@@ -226,9 +226,11 @@ export class CodecashService {
       // just turn ads on. (A stale, expired-past-grace token falls through to the full re-link flow
       // below — the stored token is dead, so we mint a fresh one rather than claim we're earning.)
       if (this.running) {
-        void vscode.window.showInformationMessage(
-          "codecash is already on — you're earning while you wait.",
+        const choice = await vscode.window.showInformationMessage(
+          "codecash is already connected and earning — you're all set.",
+          "Show earnings",
         );
+        if (choice === "Show earnings") this.showStatus();
       } else {
         await this.enable();
       }

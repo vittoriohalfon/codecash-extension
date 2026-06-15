@@ -1,11 +1,17 @@
 import { spawnSync } from "node:child_process";
 
 /**
- * Minimum Claude Code version known to support `spinnerVerbs`. NOTE: this is a conservative
- * placeholder — confirm the true floor before shipping (PLAN §2 preflight gate). This machine
- * runs 2.1.177, which works.
+ * Minimum Claude Code version that supports `spinnerVerbs`. Verified, not a guess:
+ *   - Introduced in CC 2.1.23 ("Added customizable spinner verbs setting (`spinnerVerbs`)",
+ *     anthropics/claude-code CHANGELOG.md). Earlier builds silently ignore the unknown key —
+ *     the setting's zod schema didn't exist — so a lower floor would pass preflight while the
+ *     spinner-verb ad never renders (only the statusLine surface would).
+ *   - The 2.1.177 binary on this machine embeds `spinnerVerbs: object({ mode: enum(["append",
+ *     "replace"]), verbs: array(string) })`, matching exactly what the adapter writes.
+ * 2.1.144 hardened it (custom verbs no longer leak into the post-turn "Worked for 5s" message);
+ * raise the floor there if that polish becomes a requirement.
  */
-export const MIN_CLAUDE_CODE_VERSION = "2.0.0";
+export const MIN_CLAUDE_CODE_VERSION = "2.1.23";
 
 /** Read `claude --version` → "2.1.177". Returns null if the CLI isn't found. */
 export function detectClaudeCodeVersion(run = defaultRun): string | null {

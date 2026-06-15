@@ -20,4 +20,13 @@ describe("preflight version gating", () => {
     expect(isCompatible("2.1.177")).toBe(true);
     expect(isCompatible(null)).toBe(false);
   });
+
+  // The floor is the verified version where `spinnerVerbs` was introduced (CC 2.1.23,
+  // anthropics/claude-code CHANGELOG.md). Earlier builds silently ignore the setting, so the
+  // gate must reject them. Tripwire: don't lower the floor below where the feature exists.
+  it("gates exactly at the spinnerVerbs introduction version (2.1.23)", () => {
+    expect(isCompatible("2.1.23")).toBe(true);
+    expect(isCompatible("2.1.22")).toBe(false);
+    expect(isCompatible("2.0.0")).toBe(false);
+  });
 });
