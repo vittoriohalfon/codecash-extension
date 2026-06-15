@@ -51,6 +51,9 @@ jobs:
           fi
 
       - run: pnpm typecheck
+      # renderPipeline.test.ts exec's the bundled dist/render.mjs, so the bundle must exist before
+      # tests run (dist/ is gitignored — absent on a fresh checkout). Build first, like the monorepo CI.
+      - run: pnpm build
       - run: pnpm test
       - name: Package .vsix (prod URL baked in)
         run: pnpm run package
