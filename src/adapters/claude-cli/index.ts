@@ -68,6 +68,7 @@ export class ClaudeCliAdapter implements InjectionAdapter {
     const cache = {
       adText: serve.creative.adText,
       clickUrl: serve.creative.clickUrl,
+      displayDomain: serve.creative.displayDomain,
       iconUrl: serve.creative.iconUrl,
       creativeId: serve.creative.creativeId,
       token: serve.token,

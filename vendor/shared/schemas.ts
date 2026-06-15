@@ -48,6 +48,14 @@ export const AdCreativeSchema = z.object({
   adText: z.string().min(1).max(120),
   body: z.string().max(280).optional(),
   clickUrl: z.string().url(),
+  /**
+   * The advertiser's bare destination domain (e.g. "btcpp.dev"), shown verbatim at the end of the
+   * status-line ad as `ad· <adText> ∿ <displayDomain>`. Server-derived from the REAL advertiser URL
+   * (clickUrl is rewritten to our /c/[token] redirect before it reaches the client, so the client
+   * can't recover the domain itself). Purely a human-readable label — the click target is clickUrl.
+   * Optional for back-compat: an older server omits it and the client renders `ad· <adText>` alone.
+   */
+  displayDomain: z.string().max(120).optional(),
   /** base64-encoded icon, optional (CLAUDE.md). */
   iconUrl: z.string().optional(),
 });
@@ -70,6 +78,8 @@ export type AdServeResponse = z.infer<typeof AdServeResponseSchema>;
 export const AdCacheSchema = z.object({
   adText: z.string(),
   clickUrl: z.string().url(),
+  /** Advertiser's bare domain, appended to the status line as `∿ <displayDomain>` (see AdCreativeSchema). */
+  displayDomain: z.string().max(120).optional(),
   iconUrl: z.string().optional(),
   creativeId: z.string().uuid(),
   token: z.string(),
@@ -146,6 +156,59 @@ export const TelemetryBatchSchema = z.object({
 export type TelemetryBatch = z.infer<typeof TelemetryBatchSchema>;
 
 /**
+ * Pre-auth / anonymous funnel signals (CLAUDE.md "Observability"). The device-authed telemetry above
+ * can only see a user who already linked a device — blind to the install-but-never-signed-in cohort,
+ * preflight failures, and client crashes. These signals (POST /api/events/client, no token) make that
+ * cohort visible: install → connect_started → connected → enabled, with preflight_failed as the branch.
+ */
+export const CLIENT_SIGNAL_TYPES = [
+  "install", // the extension activated for the first time on this machine
+  "connect_started", // the user opened the web sign-in (connect / paste)
+  "connected", // a device token was stored client-side (sign-in completed)
+  "preflight_failed", // enable/resume aborted: Claude Code missing or too old
+  "enabled", // serving started — the funnel terminal
+] as const;
+export const ClientSignalTypeSchema = z.enum(CLIENT_SIGNAL_TYPES);
+export type ClientSignalType = z.infer<typeof ClientSignalTypeSchema>;
+
+const ClientSignalSchema = z.object({
+  kind: z.literal("signal"),
+  type: ClientSignalTypeSchema,
+  occurredAt: z.number().int(),
+  /** Short context, e.g. the preflight failure reason. Never PII or code. */
+  reason: z.string().max(200).optional(),
+  ccVersion: z.string().max(64).optional(),
+});
+
+const ClientErrorSchema = z.object({
+  kind: z.literal("error"),
+  occurredAt: z.number().int(),
+  message: z.string().min(1).max(1000),
+  name: z.string().max(120).optional(),
+  stack: z.string().max(8000).optional(),
+  /** Logical location in the extension host, e.g. "enable" or "command:codecash.connect". */
+  where: z.string().max(120).optional(),
+});
+
+export const ClientEventSchema = z.discriminatedUnion("kind", [ClientSignalSchema, ClientErrorSchema]);
+export type ClientEvent = z.infer<typeof ClientEventSchema>;
+
+/**
+ * Body of POST /api/events/client — the ANONYMOUS pre-auth channel. `anonId` is a random, non-PII
+ * per-install UUID the extension keeps in globalState; it keys the funnel without identifying a user.
+ * Bounded + best-effort: the server forwards signals to PostHog and errors to Datadog, writes no DB
+ * rows, and moves no money, so an unauthenticated caller can't reach the ledger through it.
+ */
+export const ClientEventBatchSchema = z.object({
+  anonId: z.string().min(8).max(64),
+  adapter: AdapterSchema.optional(),
+  platform: z.string().max(64).optional(),
+  extVersion: z.string().max(32).optional(),
+  events: z.array(ClientEventSchema).min(1).max(50),
+});
+export type ClientEventBatch = z.infer<typeof ClientEventBatchSchema>;
+
+/**
  * Body of POST /api/advertiser/checkout — the public, email-only self-serve bid form. No login:
  * identity is the email + the Stripe-verified payment. The creative is persisted as a `draft`
  * BEFORE checkout (the ≤64KB base64 icon can't fit in Stripe metadata), then a superadmin approves
@@ -157,6 +220,12 @@ export const AdvertiserBidSchema = z.object({
   email: z.string().email().max(254),
   headline: z.string().trim().min(3).max(60),
   clickUrl: z.string().url().startsWith("https://", "Destination URL must be https://").max(2048),
+  /**
+   * Optional advertiser-typed domain shown in the ad line (e.g. "btcpp.dev"). Accepts a bare domain
+   * or a full URL; the server normalizes it to a bare host. Left blank → the server derives one from
+   * clickUrl. Loose max (a URL is allowed); normalization, not zod, produces the final short value.
+   */
+  displayDomain: z.string().trim().max(2048).optional(),
   brandName: z.string().trim().max(40).optional(),
   iconDataUrl: z
     .string()

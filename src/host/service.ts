@@ -9,6 +9,7 @@ import { AuthStore, looksLikeToken, shouldRotateToken } from "../lib/auth.js";
 import { ServeController, type ServeState } from "../lib/serveController.js";
 import { SignalCache } from "../lib/signalCache.js";
 import { TelemetryReporter } from "../lib/telemetry.js";
+import { ClientReporter } from "../lib/clientReporter.js";
 import { codecashPaths, type CodecashPaths } from "../lib/paths.js";
 import {
   heartbeat,
@@ -59,6 +60,8 @@ export class CodecashService {
   private readonly adapter: ClaudeCliAdapter;
   private controller: ServeController | null = null;
   private reporter: TelemetryReporter | null = null;
+  /** Anonymous, pre-auth funnel + crash reporter (always available, even before sign-in). */
+  private readonly clientReporter: ClientReporter;
   private tickTimer: ReturnType<typeof setInterval> | undefined;
   private fetchTimer: ReturnType<typeof setTimeout> | undefined;
   private windowSub: vscode.Disposable | undefined;
@@ -113,7 +116,46 @@ export class CodecashService {
     this.api = new ApiClient({ baseUrl: () => this.baseUrl(), getToken: this.auth.getToken });
     this.extensionId = context.extension.id;
     this.memento = context.globalState;
+    // Anonymous pre-auth reporter: built once here (NOT per-serve like the telemetry reporter) so it
+    // can emit install/connect/preflight signals and crash reports before any device token exists.
+    this.clientReporter = new ClientReporter(
+      { postClientEvents: (b) => this.api.postClientEvents(b) },
+      this.resolveAnonId(context),
+      {
+        adapter: "claude-cli",
+        platform: process.platform,
+        extVersion:
+          typeof context.extension.packageJSON?.version === "string"
+            ? (context.extension.packageJSON.version as string)
+            : undefined,
+      },
+    );
     context.subscriptions.push(this.out);
+  }
+
+  /**
+   * A stable, random, non-PII per-install id for the anonymous funnel (install → connect_started →
+   * connected → enabled) and crash reports. Generated once and kept in globalState; it identifies an
+   * INSTALL, never a user, so it works before — and independent of — any device token.
+   */
+  private resolveAnonId(context: vscode.ExtensionContext): string {
+    const KEY = "codecash.anonId";
+    let id = context.globalState.get<string>(KEY);
+    if (!id) {
+      id = randomUUID();
+      void context.globalState.update(KEY, id);
+    }
+    return id;
+  }
+
+  /** Forward an extension-host error to Datadog via the anonymous channel. Always safe to call. */
+  reportError(error: unknown, where: string): void {
+    this.clientReporter.reportError(error, where);
+  }
+
+  /** Emit the one-time `install` funnel signal (called from activation's first-run gate). */
+  signalInstall(): void {
+    this.clientReporter.signal("install");
   }
 
   private baseUrl(): string {
@@ -156,10 +198,17 @@ export class CodecashService {
     if (!enabled || this.running || !this.auth.hasToken()) return;
     const pf = await this.adapter.preflight();
     if (!pf.ok) {
+      this.clientReporter.signal("preflight_failed", { reason: pf.reason, ccVersion: pf.ccVersion ?? undefined });
       this.out.appendLine(`resume skipped: ${pf.reason}`);
       return;
     }
-    await this.adapter.enable("codecash — get paid for waiting");
+    try {
+      await this.adapter.enable("codecash — get paid for waiting");
+    } catch (e) {
+      this.clientReporter.reportError(e, "resume.inject");
+      this.out.appendLine(`resume failed: ${stringifyErr(e)}`);
+      return;
+    }
     await this.startServing();
     this.out.appendLine(`resumed serving on Claude Code ${pf.ccVersion}`);
   }
@@ -197,6 +246,7 @@ export class CodecashService {
     } catch (e) {
       this.out.appendLine(`connect: callback unavailable, using paste fallback — ${stringifyErr(e)}`);
     }
+    this.clientReporter.signal("connect_started");
     await vscode.env.openExternal(vscode.Uri.parse(url));
     const choice = await vscode.window.showInformationMessage(
       "codecash: finishing sign-in in your browser — this editor will connect automatically.",
@@ -210,6 +260,7 @@ export class CodecashService {
    * to {@link connect}; also used by enable() when no token is stored yet. Returns true if connected.
    */
   async signIn(autoEnable = false): Promise<boolean> {
+    this.clientReporter.signal("connect_started");
     await vscode.env.openExternal(vscode.Uri.parse(`${this.baseUrl()}/app/link-device`));
     return this.promptPasteToken(autoEnable);
   }
@@ -263,6 +314,7 @@ export class CodecashService {
    */
   private async finishConnect(token: string, autoEnable: boolean): Promise<void> {
     await this.auth.setSession(token);
+    this.clientReporter.signal("connected");
     this.authRequired = false; // a fresh token makes the session usable again
     this.renderWidget();
     if (this.running) {
@@ -280,6 +332,7 @@ export class CodecashService {
   async enable(): Promise<void> {
     const pf = await this.adapter.preflight();
     if (!pf.ok) {
+      this.clientReporter.signal("preflight_failed", { reason: pf.reason, ccVersion: pf.ccVersion ?? undefined });
       void vscode.window.showWarningMessage(`codecash: ${pf.reason}`);
       return;
     }
@@ -304,8 +357,18 @@ export class CodecashService {
       return;
     }
 
-    // Patch the surface up front so the spinner/status line are live even before the first ad.
-    await this.adapter.enable("codecash — get paid for waiting");
+    // Patch the surface up front so the spinner/status line are live even before the first ad. A
+    // refusal (missing/unparseable ~/.claude/settings.json) throws from the adapter — turn it into a
+    // clear message instead of an unhandled command error, and never flip `enabled` on a failed inject.
+    try {
+      await this.adapter.enable("codecash — get paid for waiting");
+    } catch (e) {
+      this.clientReporter.reportError(e, "enable.inject");
+      void vscode.window.showWarningMessage(
+        `codecash: couldn't enable — ${stringifyErr(e)}. Your Claude Code settings were left untouched.`,
+      );
+      return;
+    }
 
     await vscode.workspace
       .getConfiguration("codecash")
@@ -344,13 +407,19 @@ export class CodecashService {
         this.out.appendLine(`${lvl}: ${msg}${extra ? ` ${stringifyErr(extra)}` : ""}`),
     });
     this.running = true;
+    this.clientReporter.signal("enabled"); // funnel terminal: serving actually started
     // A focus change re-evaluates this session's accrual visibility (focus + cross-instance presence).
     this.windowSub = vscode.window.onDidChangeWindowState(() => this.recomputeVisibility());
     // Each tick: heartbeat presence + recompute visibility, then accrue + flush milestones (≤1s latency).
+    // Wrapped so a throw in a timer callback can't surface as an unhandled rejection on the host.
     this.tickTimer = setInterval(() => {
-      this.recomputeVisibility();
-      this.controller?.tick();
-      this.reporter?.flush();
+      try {
+        this.recomputeVisibility();
+        this.controller?.tick();
+        this.reporter?.flush();
+      } catch (e) {
+        this.clientReporter.reportError(e, "tick");
+      }
     }, VIEW_TICK_INTERVAL_MS);
     this.startSelfHealing(); // keep the injection true if settings.json drifts (R1)
     this.recomputeVisibility(); // seed visibility before the first serve
@@ -508,7 +577,10 @@ export class CodecashService {
     if (this.fetchTimer) clearTimeout(this.fetchTimer);
     this.fetchTimer = undefined;
     if (!this.running) return;
-    this.fetchTimer = setTimeout(() => void this.refetch(), ms);
+    this.fetchTimer = setTimeout(
+      () => void this.refetch().catch((e) => this.clientReporter.reportError(e, "refetch")),
+      ms,
+    );
   }
 
   /**

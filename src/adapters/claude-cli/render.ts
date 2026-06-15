@@ -19,6 +19,7 @@ import { join } from "node:path";
 const AD_CACHE_TTL_MS = 10 * 60 * 1000; // mirrors @codecash/shared AD_CACHE_TTL_MS
 const ADS_SUBDIR = "ads"; // mirrors @codecash/shared CODECASH_ADS_SUBDIR
 const CHILD_TIMEOUT_MS = 1500; // hard cap on the chained status-line command
+const AD_SEP = "∿"; // U+223F SINE WAVE — separates the ad text from the advertiser domain
 const OSC = "\x1b]8;;";
 const ST = "\x1b\\";
 
@@ -68,18 +69,24 @@ function projectDirFromStdin(stdin: string): string | null {
   }
 }
 
-/** Read one fresh, valid ad-cache file → the clickable `ad· <text>` line, or null. */
+/** Read one fresh, valid ad-cache file → the clickable `ad· <text> ∿ <domain>` line, or null. */
 function adLineFromCache(file: string, now: number): string | null {
   try {
     if (!existsSync(file)) return null;
     const c: unknown = JSON.parse(readFileSync(file, "utf8"));
     if (!isRecord(c)) return null;
-    const { adText, clickUrl, ts } = c;
+    const { adText, clickUrl, displayDomain, ts } = c;
     if (typeof adText !== "string" || typeof clickUrl !== "string" || typeof ts !== "number") {
       return null;
     }
     if (now - ts >= AD_CACHE_TTL_MS) return null; // stale
-    return osc8(clickUrl, `ad· ${adText}`);
+    // Append the advertiser's domain as a visible CTA (`∿`-separated) when the serve carried one;
+    // omit it cleanly for older serves so the line stays `ad· <text>`.
+    const label =
+      typeof displayDomain === "string" && displayDomain.length > 0
+        ? `ad· ${adText} ${AD_SEP} ${displayDomain}`
+        : `ad· ${adText}`;
+    return osc8(clickUrl, label);
   } catch {
     return null;
   }

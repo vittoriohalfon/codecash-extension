@@ -20,16 +20,31 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const service = new CodecashService(context, widget, renderScriptPath);
   context.subscriptions.push({ dispose: () => service.dispose() });
-  void service.init();
+  // Capture an init crash (auth load / resume) instead of leaving it an unhandled rejection.
+  void service.init().catch((e) => service.reportError(e, "init"));
+
+  // Wrap every command/URI callback so an unexpected throw is reported to Datadog (via the anonymous
+  // channel) AND swallowed — a failed command must never surface as a raw error or break the CLI.
+  const guard =
+    (where: string, fn: () => unknown) =>
+    (): unknown => {
+      try {
+        const r = fn();
+        return r instanceof Promise ? r.catch((e) => service.reportError(e, where)) : r;
+      } catch (e) {
+        service.reportError(e, where);
+        return undefined;
+      }
+    };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("codecash.connect", () => service.connect()),
-    vscode.commands.registerCommand("codecash.enable", () => service.enable()),
-    vscode.commands.registerCommand("codecash.disable", () => service.disable()),
-    vscode.commands.registerCommand("codecash.signIn", () => service.signIn(true)),
-    vscode.commands.registerCommand("codecash.signOut", () => service.signOut()),
-    vscode.commands.registerCommand("codecash.status", () => service.showStatus()),
-    vscode.commands.registerCommand("codecash.shareEarnings", () => service.share()),
+    vscode.commands.registerCommand("codecash.connect", guard("command:connect", () => service.connect())),
+    vscode.commands.registerCommand("codecash.enable", guard("command:enable", () => service.enable())),
+    vscode.commands.registerCommand("codecash.disable", guard("command:disable", () => service.disable())),
+    vscode.commands.registerCommand("codecash.signIn", guard("command:signIn", () => service.signIn(true))),
+    vscode.commands.registerCommand("codecash.signOut", guard("command:signOut", () => service.signOut())),
+    vscode.commands.registerCommand("codecash.status", guard("command:status", () => service.showStatus())),
+    vscode.commands.registerCommand("codecash.shareEarnings", guard("command:shareEarnings", () => service.share())),
     // The web link-device page deep-links the token back here, e.g.
     // <uriScheme>://codecash.codecash/auth?token=<jwt>&state=<nonce>. The state is verified in
     // signInWithToken so an unsolicited link can't bind this editor to another account.
@@ -41,7 +56,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (authPath(uri.path) !== "/auth") return;
         const params = new URLSearchParams(uri.query);
         const token = params.get("token");
-        if (token) void service.signInWithToken(token, params.get("state"));
+        if (token) void service.signInWithToken(token, params.get("state")).catch((e) => service.reportError(e, "uri:auth"));
       },
     }),
   );
@@ -51,6 +66,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const WELCOMED_KEY = "codecash.welcomed";
   if (!context.globalState.get<boolean>(WELCOMED_KEY)) {
     void context.globalState.update(WELCOMED_KEY, true);
+    // First activation on this machine: the top of the pre-auth funnel (install → connect → enable),
+    // so the installed-but-never-signed-in cohort is finally visible.
+    service.signalInstall();
     void vscode.commands.executeCommand(
       "workbench.action.openWalkthrough",
       `${context.extension.id}#codecashStart`,

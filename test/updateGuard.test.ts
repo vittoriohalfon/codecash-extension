@@ -24,6 +24,7 @@ const ALLOWED_PATHS = [
   "/api/events/impression",
   "/api/events/click",
   "/api/events/telemetry",
+  "/api/events/client",
   "/api/me/earnings",
   "/api/devices/refresh",
   "/api/devices/revoke",
@@ -53,6 +54,11 @@ describe("R4: the client only talks to known JSON endpoints (no code-fetch / sel
     await api.postImpression({ token: "t", idempotencyKey: "imp_aaaaaaaa", viewMs: 6000, occurredAt: 1 });
     await api.postClick({ token: "t", impressionIdempotencyKey: "imp_aaaaaaaa", idempotencyKey: "clk_aaaaaaaa", occurredAt: 1 });
     await api.postTelemetry([{ type: "view_threshold_met", adapter: "claude-cli", occurredAt: 1 }]);
+    await api.postClientEvents({
+      anonId: "anon-test-0001",
+      adapter: "claude-cli",
+      events: [{ kind: "signal", type: "install", occurredAt: 1 }],
+    });
     await api.fetchEarnings();
     await api.refreshToken();
     await api.revokeToken();

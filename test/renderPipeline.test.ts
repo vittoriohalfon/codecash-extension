@@ -21,6 +21,7 @@ const SERVE: AdServeResponse = {
     creativeId: "22222222-2222-2222-2222-222222222222",
     adText: "righthand.ai — your AI chief of staff",
     clickUrl: "https://teams.righthand.ai/signup",
+    displayDomain: "teams.righthand.ai",
   },
   token: "header.payload.sig",
   viewThresholdSeconds: 5,
@@ -46,6 +47,7 @@ describe("adapter → cache → render pipeline", () => {
     expect(cache).toMatchObject({
       adText: SERVE.creative.adText,
       clickUrl: SERVE.creative.clickUrl,
+      displayDomain: SERVE.creative.displayDomain,
       token: SERVE.token,
     });
 
@@ -62,7 +64,25 @@ describe("adapter → cache → render pipeline", () => {
     });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain(`ad· ${SERVE.creative.adText}`);
+    expect(res.stdout).toContain(`∿ ${SERVE.creative.displayDomain}`); // visible advertiser domain
     expect(res.stdout).toContain(SERVE.creative.clickUrl); // OSC 8 hyperlink target
+  });
+
+  it("omits the domain separator when the serve carried no displayDomain (back-compat)", async () => {
+    const paths = codecashPaths(home);
+    const adapter = new ClaudeCliAdapter(RENDER_MJS, paths);
+    const creative = { ...SERVE.creative };
+    delete creative.displayDomain;
+    await adapter.pushAd({ ...SERVE, creative });
+
+    const res = spawnSync("node", [RENDER_MJS], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+      input: "{}",
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain(`ad· ${SERVE.creative.adText}`);
+    expect(res.stdout).not.toContain("∿");
   });
 
   it("a stale cache renders nothing (never breaks the CLI)", async () => {

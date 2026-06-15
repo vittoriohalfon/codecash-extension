@@ -4,6 +4,7 @@ import {
   type ImpressionEvent,
   type ClickEvent,
   type TelemetryReport,
+  type ClientEventBatch,
   type EarningsSnapshot,
 } from "@codecash/shared";
 
@@ -169,6 +170,24 @@ export class ApiClient {
       });
     } catch {
       /* best-effort telemetry; swallow */
+    }
+  }
+
+  /**
+   * POST /api/events/client — ANONYMOUS, pre-auth funnel signals + extension-host crash reports. No
+   * device token by design: this is the channel for the cohort the authed telemetry can't see
+   * (installed-but-never-signed-in, preflight failures, errors before a token exists). Fire-and-forget:
+   * never throws, never rejects — losing a signal must never disturb the user or the money loop.
+   */
+  async postClientEvents(batch: ClientEventBatch): Promise<void> {
+    try {
+      await this.fetchImpl(`${this.base()}/api/events/client`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(batch),
+      });
+    } catch {
+      /* best-effort anonymous telemetry; swallow */
     }
   }
 
