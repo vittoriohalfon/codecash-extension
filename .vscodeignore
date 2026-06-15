@@ -1,0 +1,15 @@
+src/**
+test/**
+vendor/**
+scripts/**
+assets/**
+tsconfig.json
+vitest.config.ts
+esbuild.mjs
+**/*.map
+*.vsix
+.turbo/**
+node_modules/**
+!dist/**
+!media/**
+!walkthroughs/**

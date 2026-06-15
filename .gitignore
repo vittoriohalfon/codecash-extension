@@ -1,0 +1,21 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+out/
+*.vsix
+*.tsbuildinfo
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+keys/
+
+# os / editor
+.DS_Store
+*.log
+.vscode-test/

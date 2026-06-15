@@ -1,0 +1,151 @@
+{
+  "name": "codecash",
+  "displayName": "codecash — get paid for waiting",
+  "description": "Show one tasteful sponsored ad in your AI coding agent's wait states and earn a revenue share.",
+  "version": "0.1.1",
+  "private": false,
+  "type": "module",
+  "publisher": "codecash",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "icon": "media/icon.png",
+  "homepage": "https://github.com/vittoriohalfon/codecash-extension#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vittoriohalfon/codecash-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vittoriohalfon/codecash-extension/issues"
+  },
+  "keywords": [
+    "claude code",
+    "claude",
+    "codex",
+    "ai",
+    "spinner",
+    "ads",
+    "revenue share",
+    "earn"
+  ],
+  "galleryBanner": {
+    "color": "#0B0B0F",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "qna": false,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codecash.connect",
+        "title": "codecash: Connect & start earning"
+      },
+      {
+        "command": "codecash.enable",
+        "title": "codecash: Enable ad injection"
+      },
+      {
+        "command": "codecash.disable",
+        "title": "codecash: Disable ad injection (restore settings)"
+      },
+      {
+        "command": "codecash.signIn",
+        "title": "codecash: Sign in with a token (paste)"
+      },
+      {
+        "command": "codecash.signOut",
+        "title": "codecash: Sign out"
+      },
+      {
+        "command": "codecash.status",
+        "title": "codecash: Show earnings"
+      },
+      {
+        "command": "codecash.shareEarnings",
+        "title": "codecash: Share my earnings"
+      },
+      {
+        "command": "codecash.invite",
+        "title": "codecash: Invite a dev (you both earn more)"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "codecashStart",
+        "title": "Get paid for waiting",
+        "description": "Connect codecash and earn a revenue share on the one ad shown in your AI agent's wait states.",
+        "steps": [
+          {
+            "id": "connect",
+            "title": "Connect & start earning",
+            "description": "One click links this editor to your codecash account in the browser, then turns on ad injection automatically — no copy-paste, no command palette.\n[Connect & start earning](command:codecash.connect)",
+            "media": {
+              "markdown": "walkthroughs/connect.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:codecash.enabled"
+            ]
+          },
+          {
+            "id": "manage",
+            "title": "Track earnings & stay in control",
+            "description": "The status-bar item shows today's earnings and your on/off state. Your `~/.claude/settings.json` is backed up when you enable and restored exactly by **codecash: Disable ad injection**.\n[Show earnings](command:codecash.status)",
+            "media": {
+              "markdown": "walkthroughs/enable.md"
+            },
+            "completionEvents": [
+              "onCommand:codecash.status"
+            ]
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "codecash",
+      "properties": {
+        "codecash.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Inject ads into the Claude Code spinner + status line. Managed by codecash: Enable / Disable — you normally don't edit this directly."
+        },
+        "codecash.apiBaseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base URL of the codecash server this extension fetches ads from and reports events to. Leave blank to use the build default (`http://localhost:3000` for local builds). Changes take effect on the next ad fetch."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "dev": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist",
+    "icon": "node scripts/make-icon.mjs",
+    "package": "node esbuild.mjs && vsce package --no-dependencies -o codecash.vsix",
+    "publish:vsce": "vsce publish --no-dependencies",
+    "publish:ovsx": "ovsx publish codecash.vsix"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "ovsx": "^0.10.1",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
