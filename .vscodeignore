@@ -10,6 +10,15 @@ esbuild.mjs
 *.vsix
 .turbo/**
 node_modules/**
-!dist/**
+pnpm-lock.yaml
+.nvmrc
+.gitignore
+.vscodeignore
+CLAUDE.md
+# Ship only the built bundles from dist/, never their source maps. vsce force-includes any
+# file matched by a negation, so we un-ignore the bundles by extension — NOT `!dist/**`,
+# which would drag dist/*.map back in past the `**/*.map` rule above.
+!dist/*.cjs
+!dist/*.mjs
 !media/**
 !walkthroughs/**
