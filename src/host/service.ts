@@ -1,11 +1,13 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
-import { VIEW_TICK_INTERVAL_MS, MICROS_PER_USD } from "@codecash/shared";
+import { join } from "node:path";
+import { VIEW_TICK_INTERVAL_MS, MICROS_PER_USD, type EarningsSnapshot } from "@codecash/shared";
 import { nextFetchDelayMs } from "../lib/rotation.js";
 import { ClaudeCliAdapter } from "../adapters/claude-cli/index.js";
 import { ApiClient } from "../lib/apiClient.js";
 import { AuthStore, looksLikeToken, shouldRotateToken } from "../lib/auth.js";
 import { ServeController, type ServeState } from "../lib/serveController.js";
+import { SignalCache } from "../lib/signalCache.js";
 import { TelemetryReporter } from "../lib/telemetry.js";
 import { codecashPaths, type CodecashPaths } from "../lib/paths.js";
 import {
@@ -26,6 +28,23 @@ const DEFAULT_BASE_URL =
 const PENDING_STATE_KEY = "codecash.pendingConnectState";
 
 /**
+ * How long a piggybacked earnings snapshot stays fresh enough to skip the cold-start /api/me/earnings
+ * poll (fleetSignals uses ~90s). Steady-state updates ride the event responses; this only gates the
+ * one poll at startServing(), so a recently-credited session re-enabling doesn't re-poll needlessly.
+ */
+const EARNINGS_FRESH_MS = 90_000;
+
+/**
+ * R1 self-healing cadences. A file-watcher re-asserts the injection when ~/.claude/settings.json is
+ * changed externally; DEBOUNCE coalesces an editor's multi-write bursts (and our own writes, which
+ * the watcher also sees — reassert no-ops when in sync). HEARTBEAT is a low-frequency backstop so the
+ * surface stays true even if a watcher event is missed (some platforms / network filesystems), and
+ * during long no-fill backoff when pushAd isn't re-writing settings on its own.
+ */
+const REASSERT_DEBOUNCE_MS = 500;
+const REASSERT_HEARTBEAT_MS = 30_000;
+
+/**
  * The extension host's money-loop service. Owns the VS Code glue — SecretStorage auth, the status-
  * bar widget, the two timers (view-tick + ad refetch), and window-focus visibility — and delegates
  * every decision to the tested, vscode-free modules (ApiClient, ServeController, ViewTracker).
@@ -43,7 +62,13 @@ export class CodecashService {
   private tickTimer: ReturnType<typeof setInterval> | undefined;
   private fetchTimer: ReturnType<typeof setTimeout> | undefined;
   private windowSub: vscode.Disposable | undefined;
+  /** R1 self-healing: watches ~/.claude/settings.json for external drift; backstop timer + debounce. */
+  private settingsWatcher: vscode.Disposable | undefined;
+  private reassertTimer: ReturnType<typeof setInterval> | undefined;
+  private reassertDebounce: ReturnType<typeof setTimeout> | undefined;
   private todayMicros = 0;
+  /** Latest earnings snapshot the server piggybacked on event responses (R2); gates the cold poll. */
+  private readonly signals = new SignalCache();
   private running = false;
   private readonly out: vscode.OutputChannel;
   private readonly extensionId: string;
@@ -53,6 +78,26 @@ export class CodecashService {
   private readonly instanceId = randomUUID();
   /** Last computed accrual visibility (focus OR present-within-cap); seeds the view tracker. */
   private lastVisible = false;
+  /**
+   * Last auth/serving state mirrored into the VS Code context keys that gate the command palette
+   * (see contributes.menus.commandPalette). Two auth keys, deliberately distinct:
+   *   • codecash:signedIn   — a device token is stored (usable or not) → gates Sign out / earnings / share.
+   *   • codecash:sessionLive — that token is actually usable (not expired past grace) → gates the auth
+   *                            entry points (Connect / paste, shown when NOT live) and Enable.
+   * Splitting them keeps every state's palette correct: an auth-required session still offers Sign
+   * out *and* re-link. `undefined` until the first sync so the initial setContext always fires.
+   */
+  private ctxSignedIn: boolean | undefined;
+  private ctxSessionLive: boolean | undefined;
+  private ctxEnabled: boolean | undefined;
+  /**
+   * True once the serve loop hit `auth-required` (token expired past the refresh grace) and not yet
+   * re-authed. We deliberately keep the stored token (rotation + grace self-heal), so `hasToken()`
+   * alone can't tell a usable session from a dead one — this flag does, so the palette/widget re-
+   * surface the auth entry points exactly when re-link is actually needed. Cleared on a good serve,
+   * a fresh token, or disable.
+   */
+  private authRequired = false;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -127,8 +172,10 @@ export class CodecashService {
    * Falls back to manual paste if the callback can't be built or doesn't round-trip.
    */
   async connect(): Promise<void> {
-    if (this.auth.hasToken()) {
-      // Already connected: clicking "Connect & start earning" again should just turn ads on.
+    if (this.auth.hasToken() && !this.authRequired) {
+      // Already connected with a usable session: clicking "Connect & start earning" again should
+      // just turn ads on. (A stale, expired-past-grace token falls through to the full re-link flow
+      // below — the stored token is dead, so we mint a fresh one rather than claim we're earning.)
       if (this.running) {
         void vscode.window.showInformationMessage(
           "codecash is already on — you're earning while you wait.",
@@ -169,19 +216,11 @@ export class CodecashService {
 
   /**
    * Open the web dashboard, where the share card lets the dev copy a link to their public /u/[handle]
-   * earnings page (viral mechanics Phase 1). The extension intentionally doesn't know the handle —
-   * the dashboard owns sharing; this is just the doorway.
+   * earnings page (viral mechanics Phase 1) and the referral card copies their /r/<code> invite link
+   * (Phase 2). The extension intentionally knows neither the handle nor the code — the dashboard owns
+   * both loops; this command (Share earnings & invite a dev) is just the doorway.
    */
   async share(): Promise<void> {
-    await vscode.env.openExternal(vscode.Uri.parse(`${this.baseUrl()}/app/dashboard`));
-  }
-
-  /**
-   * Open the dashboard, where the referral card lets the dev copy their /r/<code> invite link
-   * (viral mechanics Phase 2). Like share(), the extension doesn't know the code — the dashboard
-   * owns the referral loop; this is just the doorway.
-   */
-  async invite(): Promise<void> {
     await vscode.env.openExternal(vscode.Uri.parse(`${this.baseUrl()}/app/dashboard`));
   }
 
@@ -224,6 +263,7 @@ export class CodecashService {
    */
   private async finishConnect(token: string, autoEnable: boolean): Promise<void> {
     await this.auth.setSession(token);
+    this.authRequired = false; // a fresh token makes the session usable again
     this.renderWidget();
     if (this.running) {
       await this.refetch();
@@ -297,7 +337,7 @@ export class CodecashService {
       now: () => Date.now(),
       isVisible: () => this.lastVisible,
       onTelemetry: (type, ctx) => this.reporter?.report(type, ctx),
-      onEarned: () => void this.refreshEarnings(),
+      onEarned: (credited, earnings) => this.applyEarnings(credited, earnings),
       onState: (s) => this.onState(s),
       onTokenRefreshed: (t) => this.auth.setToken(t),
       log: (lvl, msg, extra) =>
@@ -312,17 +352,21 @@ export class CodecashService {
       this.controller?.tick();
       this.reporter?.flush();
     }, VIEW_TICK_INTERVAL_MS);
+    this.startSelfHealing(); // keep the injection true if settings.json drifts (R1)
     this.recomputeVisibility(); // seed visibility before the first serve
 
     // The first fetch; refetch() schedules each subsequent one off the server's rotation cadence
     // (a self-rescheduling timeout, not a fixed interval) so ads can rotate continuously.
     await this.refetch();
-    await this.refreshEarnings();
+    // Cold-start earnings: steady-state updates ride the event responses (applyEarnings), so only
+    // poll here when no recent snapshot is cached (e.g. first enable after a reload).
+    if (!this.signals.earningsFreshWithin(EARNINGS_FRESH_MS, Date.now())) await this.refreshEarnings();
     this.renderWidget();
   }
 
   async disable(): Promise<void> {
     this.running = false;
+    this.authRequired = false; // not serving → no stale auth-required state to surface
     this.controller?.stop();
     this.controller = null;
     this.reporter?.flush(); // don't strand the last buffered milestones on the way out
@@ -356,10 +400,56 @@ export class CodecashService {
     this.controller?.setVisible(this.lastVisible);
   }
 
+  /**
+   * R1 self-healing: keep our injection true while serving. pushAd already re-installs settings each
+   * rotation, but nothing covers an external edit between rotations, a stale render-script path after
+   * an extension update, or long idle/no-fill windows. A file-watcher reacts to external writes and a
+   * low-frequency backstop covers missed events — both delegate to the idempotent adapter.reassert(),
+   * which writes ONLY on real drift, so our own writes don't loop. Best-effort: a watcher that can't
+   * be created (unusual FS) just leaves the backstop timer; nothing here ever breaks serving.
+   */
+  private startSelfHealing(): void {
+    try {
+      const claudeDir = join(this.paths.home, ".claude");
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(claudeDir), "settings.json"),
+      );
+      const onChange = () => this.debouncedReassert();
+      watcher.onDidChange(onChange);
+      watcher.onDidCreate(onChange);
+      watcher.onDidDelete(onChange);
+      this.settingsWatcher = watcher;
+    } catch (e) {
+      this.out.appendLine(`self-heal watcher unavailable (backstop only): ${stringifyErr(e)}`);
+    }
+    this.reassertTimer = setInterval(() => this.reassertSurface(), REASSERT_HEARTBEAT_MS);
+  }
+
+  /** Coalesce a burst of settings writes (an editor save, or our own write) into one reassert. */
+  private debouncedReassert(): void {
+    if (this.reassertDebounce) clearTimeout(this.reassertDebounce);
+    this.reassertDebounce = setTimeout(() => {
+      this.reassertDebounce = undefined;
+      this.reassertSurface();
+    }, REASSERT_DEBOUNCE_MS);
+  }
+
+  /** Re-assert the injection if it drifted. No-op when stopped or already in sync. Never throws. */
+  private reassertSurface(): void {
+    if (!this.running) return;
+    try {
+      const res = this.adapter.reassert();
+      if (res.reasserted) this.out.appendLine("re-asserted ad injection (settings.json had drifted)");
+    } catch (e) {
+      this.out.appendLine(`reassert failed (will retry): ${stringifyErr(e)}`);
+    }
+  }
+
   async signOut(): Promise<void> {
     if (this.running) await this.disable();
     await this.auth.clear();
     this.todayMicros = 0;
+    this.signals.clear(); // never carry one identity's earnings into the next sign-in
     this.renderWidget();
     void vscode.window.showInformationMessage("codecash: signed out.");
   }
@@ -380,13 +470,21 @@ export class CodecashService {
     if (!this.controller) return;
     await this.maybeRotateToken();
     const state = await this.controller.fetchAndRender();
+    // Track whether the session is currently usable so the palette/widget surface re-auth exactly
+    // when it's needed. A definitively-authed outcome clears the flag; "error" is left untouched
+    // (it's usually a transient network blip, not an auth failure) so we don't flap the auth state.
+    const wasAuthRequired = this.authRequired;
     if (state === "auth-required") {
+      this.authRequired = true;
       void vscode.window
         .showWarningMessage("codecash: your session expired — sign in again to keep earning.", "Sign in")
         .then((choice) => {
           if (choice) void this.signIn();
         });
+    } else if (state !== "error") {
+      this.authRequired = false;
     }
+    if (this.authRequired !== wasAuthRequired) this.renderWidget();
     // Rotate on the server's cadence (fast while serving, backed off when there's no inventory),
     // replacing the old fixed 10-min interval. `?.` because disable() can null the controller mid-fetch.
     this.scheduleNextFetch(nextFetchDelayMs(state, this.controller?.getCurrentServe()?.rotationSeconds));
@@ -425,6 +523,7 @@ export class CodecashService {
   private async refreshEarnings(): Promise<void> {
     try {
       const e = await this.api.fetchEarnings();
+      this.signals.noteEarnings(e, Date.now());
       this.todayMicros = e.todayMicros;
       this.renderWidget();
     } catch {
@@ -432,13 +531,38 @@ export class CodecashService {
     }
   }
 
+  /**
+   * Update the earnings widget from a billable-event response. The server piggybacks the dev's running
+   * totals (R2 / fleetSignals), so a credit updates the widget with NO extra /api/me/earnings round-
+   * trip. The snapshot is an authoritative ledger read, so we apply it on any outcome. We only fall
+   * back to a poll against an older server that omitted the snapshot, and only when a credit actually
+   * landed — preserving the pre-R2 behavior without polling on every deduped retry.
+   */
+  private applyEarnings(creditedMicros: number, earnings?: EarningsSnapshot): void {
+    if (earnings) {
+      this.signals.noteEarnings(earnings, Date.now());
+      this.todayMicros = earnings.todayMicros;
+      this.renderWidget();
+      return;
+    }
+    if (creditedMicros > 0) void this.refreshEarnings();
+  }
+
   private onState(state: ServeState): void {
     this.out.appendLine(`state: ${state}`);
   }
 
   private renderWidget(): void {
+    this.syncContext();
     const usd = (this.todayMicros / MICROS_PER_USD).toFixed(2);
-    if (this.running) {
+    if (this.running && this.authRequired) {
+      // Serving but stalled on auth: don't claim we're earning — make re-link the obvious next step
+      // (the auth-required toast is transient; this is the persistent surface).
+      this.widget.text = "$(rss) codecash — sign-in needed";
+      this.widget.command = "codecash.signIn";
+      this.widget.tooltip = "codecash: your session expired. Click to sign in again and keep earning.";
+      this.widget.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+    } else if (this.running) {
       this.widget.text = `$(rss) codecash ($${usd} today)`;
       this.widget.command = "codecash.status";
       this.widget.tooltip = "codecash — earning while you wait. Click for status.";
@@ -459,13 +583,45 @@ export class CodecashService {
     }
   }
 
+  /**
+   * Mirror authentication + serving state into the context keys that gate the command palette
+   * (contributes.menus.commandPalette). Driven from renderWidget so it's re-evaluated at every
+   * transition (load, connect, enable, disable, sign-out, auth-required) and can never drift from
+   * the widget. See the field doc on ctxSignedIn/ctxSessionLive for what each key means. `enabled`
+   * stays true through auth-required (the loop is running, just stalled) so Disable remains the way
+   * to stop it. Idempotent: only fires setContext on an actual change.
+   */
+  private syncContext(): void {
+    const signedIn = this.auth.hasToken();
+    const sessionLive = signedIn && !this.authRequired;
+    const enabled = this.running;
+    if (signedIn !== this.ctxSignedIn) {
+      this.ctxSignedIn = signedIn;
+      void vscode.commands.executeCommand("setContext", "codecash:signedIn", signedIn);
+    }
+    if (sessionLive !== this.ctxSessionLive) {
+      this.ctxSessionLive = sessionLive;
+      void vscode.commands.executeCommand("setContext", "codecash:sessionLive", sessionLive);
+    }
+    if (enabled !== this.ctxEnabled) {
+      this.ctxEnabled = enabled;
+      void vscode.commands.executeCommand("setContext", "codecash:enabled", enabled);
+    }
+  }
+
   private clearTimers(): void {
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.fetchTimer) clearTimeout(this.fetchTimer);
+    if (this.reassertTimer) clearInterval(this.reassertTimer);
+    if (this.reassertDebounce) clearTimeout(this.reassertDebounce);
     this.tickTimer = undefined;
     this.fetchTimer = undefined;
+    this.reassertTimer = undefined;
+    this.reassertDebounce = undefined;
     this.windowSub?.dispose();
     this.windowSub = undefined;
+    this.settingsWatcher?.dispose();
+    this.settingsWatcher = undefined;
   }
 
   dispose(): void {

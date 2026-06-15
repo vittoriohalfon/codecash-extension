@@ -36,8 +36,12 @@ function writeJsonAtomic(path: string, value: unknown): void {
   renameSync(tmp, path); // atomic on the same filesystem
 }
 
-/** True if a statusLine spec is our own render script (so we never chain-capture ourselves). */
-function isOurStatusLine(spec: unknown, renderScriptPath: string): boolean {
+/**
+ * True if a statusLine spec is our own render script at the CURRENT path (so we never chain-capture
+ * ourselves, and so reassert (R1) can tell drift — incl. a stale path after an extension update —
+ * from in-sync). Matching on the path means an old, post-update command no longer counts as "ours".
+ */
+export function isOurStatusLine(spec: unknown, renderScriptPath: string): boolean {
   return (
     !!spec &&
     typeof spec === "object" &&

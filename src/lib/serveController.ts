@@ -1,4 +1,4 @@
-import type { AdServeResponse, EventType } from "@codecash/shared";
+import type { AdServeResponse, EventType, EarningsSnapshot } from "@codecash/shared";
 import { ApiClient, UnauthorizedError, type NextAd } from "./apiClient.js";
 import { ViewTracker, type ViewContext } from "./viewTracker.js";
 import { readServeClaims } from "./tokenClaims.js";
@@ -43,8 +43,12 @@ export interface ControllerDeps {
   /** Visibility proxy — VS Code window focus on the CLI surface. */
   isVisible: () => boolean;
   onTelemetry?: (type: EventType, ctx: ViewContext) => void;
-  /** A billable credit landed (not deduped) — host updates the earnings widget. */
-  onEarned?: (creditedMicros: number) => void;
+  /**
+   * Earnings changed or were re-reported — host updates the widget. Fires when the server piggybacks
+   * an earnings snapshot (any outcome — authoritative, so always applied) OR, against an older server
+   * with no snapshot, when a credit actually landed. `earnings` is undefined in that fallback case.
+   */
+  onEarned?: (creditedMicros: number, earnings?: EarningsSnapshot) => void;
   onState?: (state: ServeState) => void;
   /** Refresh succeeded — persist the rotated token (SecretStorage) so getToken() returns it. */
   onTokenRefreshed?: (token: string) => Promise<void> | void;
@@ -153,7 +157,8 @@ export class ServeController {
           occurredAt: this.deps.now(),
         }),
       );
-      if (!r.deduped && r.creditedMicros > 0) this.deps.onEarned?.(r.creditedMicros);
+      if (r.earnings || (!r.deduped && r.creditedMicros > 0))
+        this.deps.onEarned?.(r.creditedMicros, r.earnings);
       this.deps.log?.("info", `impression ${r.deduped ? "deduped" : "credited"} ${r.creditedMicros}µ$`);
       return { kind: "credited", ...r };
     } catch (err) {
@@ -188,7 +193,8 @@ export class ServeController {
           occurredAt: this.deps.now(),
         }),
       );
-      if (!r.deduped && r.creditedMicros > 0) this.deps.onEarned?.(r.creditedMicros);
+      if (r.earnings || (!r.deduped && r.creditedMicros > 0))
+        this.deps.onEarned?.(r.creditedMicros, r.earnings);
       this.deps.log?.("info", `click ${r.deduped ? "deduped" : "credited"} ${r.creditedMicros}µ$`);
       return { kind: "credited", ...r };
     } catch (err) {

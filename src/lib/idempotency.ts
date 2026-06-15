@@ -1,8 +1,7 @@
 /**
- * Idempotency keys are derived from the serve id, NOT random — so a retried send (network blip,
- * reload) reuses the same key and the server's UNIQUE constraint makes it a no-op instead of a
- * double charge (CLAUDE.md: "double-fires are no-ops"). One serve → at most one impression + one
- * click. serveId is a uuid (36 chars), so the prefixed keys land inside the 8..128 schema bound.
+ * Serve-derived idempotency keys. The single source of truth now lives in `@codecash/shared` so the
+ * server-side click-redirect (/c/[token]) derives byte-identical keys to what the client posts —
+ * required to dedupe clicks and to find a click's parent impression. Re-exported here so existing
+ * extension imports (`./idempotency.js`) keep their path.
  */
-export const impressionKey = (serveId: string): string => `imp_${serveId}`;
-export const clickKey = (serveId: string): string => `clk_${serveId}`;
+export { impressionKey, clickKey } from "@codecash/shared";

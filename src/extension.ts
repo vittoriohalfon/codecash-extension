@@ -30,7 +30,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("codecash.signOut", () => service.signOut()),
     vscode.commands.registerCommand("codecash.status", () => service.showStatus()),
     vscode.commands.registerCommand("codecash.shareEarnings", () => service.share()),
-    vscode.commands.registerCommand("codecash.invite", () => service.invite()),
     // The web link-device page deep-links the token back here, e.g.
     // <uriScheme>://codecash.codecash/auth?token=<jwt>&state=<nonce>. The state is verified in
     // signInWithToken so an unsolicited link can't bind this editor to another account.

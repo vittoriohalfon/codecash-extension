@@ -136,8 +136,22 @@ export class ApiClient {
     });
     if (res.status === 401) throw new UnauthorizedError(await errorCode(res));
     if (!res.ok) throw new ApiError(res.status, await errorCode(res));
-    const j = (await res.json()) as { deduped?: unknown; creditedMicros?: unknown };
-    return { deduped: j.deduped === true, creditedMicros: Number(j.creditedMicros ?? 0) };
+    const j = (await res.json()) as {
+      deduped?: unknown;
+      creditedMicros?: unknown;
+      earnings?: { todayMicros?: unknown; lifetimeMicros?: unknown };
+    };
+    const result: CreditResult = {
+      deduped: j.deduped === true,
+      creditedMicros: Number(j.creditedMicros ?? 0),
+    };
+    if (j.earnings && typeof j.earnings === "object") {
+      result.earnings = {
+        todayMicros: Number(j.earnings.todayMicros ?? 0),
+        lifetimeMicros: Number(j.earnings.lifetimeMicros ?? 0),
+      };
+    }
+    return result;
   }
 
   /**
@@ -158,8 +172,8 @@ export class ApiClient {
     }
   }
 
-  /** GET /api/me/earnings — device-authed dev earnings (µUSD) for the status-bar widget. */
-  async fetchEarnings(): Promise<{ todayMicros: number; lifetimeMicros: number }> {
+  /** GET /api/me/earnings — device-authed dev earnings (µUSD) for the status-bar widget (cold start). */
+  async fetchEarnings(): Promise<EarningsSnapshot> {
     const res = await this.fetchImpl(`${this.base()}/api/me/earnings`, {
       method: "GET",
       headers: { ...this.authHeaders() },

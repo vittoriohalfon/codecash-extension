@@ -72,7 +72,28 @@ describe("ServeController", () => {
     expect(api.postImpression).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: `imp_${CLAIMS.serveId}`, token: TOKEN }),
     );
-    expect(onEarned).toHaveBeenCalledWith(1000);
+    // No piggybacked snapshot from this mock → onEarned still fires the credit (earnings undefined).
+    expect(onEarned).toHaveBeenCalledWith(1000, undefined);
+  });
+
+  it("forwards the server's piggybacked earnings snapshot to onEarned", async () => {
+    const earnings = { todayMicros: 4200, lifetimeMicros: 99_000 };
+    const { controller, onEarned } = harness({
+      postImpression: vi.fn(async () => ({ deduped: false, creditedMicros: 1000, earnings })),
+    });
+    await controller.fetchAndRender();
+    await controller.creditCurrentImpression();
+    expect(onEarned).toHaveBeenCalledWith(1000, earnings);
+  });
+
+  it("applies a piggybacked snapshot even on a deduped credit (authoritative ledger read)", async () => {
+    const earnings = { todayMicros: 7000, lifetimeMicros: 120_000 };
+    const { controller, onEarned } = harness({
+      postImpression: vi.fn(async () => ({ deduped: true, creditedMicros: 0, earnings })),
+    });
+    await controller.fetchAndRender();
+    await controller.creditCurrentImpression();
+    expect(onEarned).toHaveBeenCalledWith(0, earnings);
   });
 
   it("is idempotent: a second credit attempt is a no-op", async () => {

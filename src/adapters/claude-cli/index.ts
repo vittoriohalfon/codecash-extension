@@ -2,7 +2,8 @@ import type { AdServeResponse } from "@codecash/shared";
 import type { InjectionAdapter, PreflightResult } from "../types.js";
 import { codecashPaths, type CodecashPaths } from "../../lib/paths.js";
 import { installClaudeCliAdapter, uninstallClaudeCliAdapter } from "../../lib/settings.js";
-import { writeAdCache, writeWorkspaceAdCache } from "../../lib/adCache.js";
+import { writeAdCache, writeWorkspaceAdCache, readAdCache, isAdFresh } from "../../lib/adCache.js";
+import { reassertInjection, type ReassertResult } from "../../lib/reassert.js";
 import { workspaceKey } from "../../lib/workspaceKey.js";
 import { detectClaudeCodeVersion, isCompatible } from "../../lib/preflight.js";
 
@@ -47,6 +48,20 @@ export class ClaudeCliAdapter implements InjectionAdapter {
 
   async disable(): Promise<void> {
     uninstallClaudeCliAdapter(this.paths);
+  }
+
+  /**
+   * Re-assert the injection if settings.json drifted out from under us (R1 self-healing). Idempotent:
+   * writes ONLY on real drift, so it never fights the per-rotation pushAd and a watcher fed by our own
+   * writes converges in one read. Pulls the current fresh ad from the cache so a re-install restores
+   * the live spinner verb (and leaves the verb alone when nothing is fresh). Synchronous + never
+   * throws — safe to call from a file-watcher / backstop-timer callback. claude-cli-specific (the
+   * webview adapters don't inject via settings.json), so it's not on the InjectionAdapter contract.
+   */
+  reassert(): ReassertResult {
+    const cache = readAdCache(this.paths);
+    const adText = cache && isAdFresh(cache) ? cache.adText : undefined;
+    return reassertInjection(this.paths, { renderScriptPath: this.renderScriptPath, adText });
   }
 
   async pushAd(serve: AdServeResponse): Promise<void> {

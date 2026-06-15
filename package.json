@@ -71,13 +71,41 @@
       },
       {
         "command": "codecash.shareEarnings",
-        "title": "codecash: Share my earnings"
-      },
-      {
-        "command": "codecash.invite",
-        "title": "codecash: Invite a dev (you both earn more)"
+        "title": "codecash: Share earnings & invite a dev"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "codecash.connect",
+          "when": "!codecash:sessionLive"
+        },
+        {
+          "command": "codecash.signIn",
+          "when": "!codecash:sessionLive"
+        },
+        {
+          "command": "codecash.enable",
+          "when": "codecash:sessionLive && !codecash:enabled"
+        },
+        {
+          "command": "codecash.disable",
+          "when": "codecash:enabled"
+        },
+        {
+          "command": "codecash.signOut",
+          "when": "codecash:signedIn"
+        },
+        {
+          "command": "codecash.status",
+          "when": "codecash:signedIn"
+        },
+        {
+          "command": "codecash.shareEarnings",
+          "when": "codecash:signedIn"
+        }
+      ]
+    },
     "walkthroughs": [
       {
         "id": "codecashStart",
