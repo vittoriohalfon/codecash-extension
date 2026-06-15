@@ -19,3 +19,6 @@ keys/
 .DS_Store
 *.log
 .vscode-test/
+
+# local-only agent guidance — references internal monorepo paths; keep out of the public mirror
+CLAUDE.md
