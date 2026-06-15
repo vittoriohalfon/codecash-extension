@@ -5,14 +5,13 @@
  */
 
 /**
- * Dev's revenue share, in percent. The market standard for this ad category is 70%, so 50% is now
- * the stingy option — we pay 70%.
+ * Dev's revenue share, in percent — an even 50/50 split with the platform.
  *
- * NOTE: the live credit path currently uses THIS constant, not the `flags` row, so this is the
- * effective lever today. Making the `flags.revSharePct` row truly authoritative at runtime is a
- * tracked follow-up.
+ * This is the FALLBACK default. The runtime source of truth is the `flags.revSharePct` row
+ * (authoritative since viral-mechanics Phase 2 §0), which the seed initializes to this value — keep
+ * the two in sync.
  */
-export const DEFAULT_REV_SHARE_PCT = 70;
+export const DEFAULT_REV_SHARE_PCT = 50;
 
 /** A click is worth this many impressions. */
 export const CLICK_MULTIPLIER = 50;
@@ -45,7 +44,7 @@ export const SHARE_PROMPT_THRESHOLD_MICROS = 5 * MICROS_PER_USD; // $5.00
  * is active, BOTH the referrer and the invitee resolve a dev split of base + boost (clamped to the
  * cap), so the platform eats the difference and no extra ledger entry is created.
  */
-/** Extra percentage POINTS added to the dev split while a referral boost is active (70% → 80%). */
+/** Extra percentage POINTS added to the dev split while a referral boost is active (50% → 60%). */
 export const DEFAULT_REFERRAL_BOOST_PCT = 10;
 /** How long the boost lasts once the invitee activates, in days. */
 export const DEFAULT_REFERRAL_BOOST_DAYS = 30;
