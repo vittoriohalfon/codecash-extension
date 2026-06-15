@@ -5,6 +5,7 @@ import { installClaudeCliAdapter, uninstallClaudeCliAdapter } from "../../lib/se
 import { writeAdCache, writeWorkspaceAdCache, readAdCache, isAdFresh } from "../../lib/adCache.js";
 import { reassertInjection, type ReassertResult } from "../../lib/reassert.js";
 import { workspaceKey } from "../../lib/workspaceKey.js";
+import { formatAdLabel } from "../../lib/adLabel.js";
 import { detectClaudeCodeVersion, isCompatible } from "../../lib/preflight.js";
 
 /**
@@ -60,7 +61,8 @@ export class ClaudeCliAdapter implements InjectionAdapter {
    */
   reassert(): ReassertResult {
     const cache = readAdCache(this.paths);
-    const adText = cache && isAdFresh(cache) ? cache.adText : undefined;
+    // Restore the brand-prefixed spinner verb (`<brand> · <ad>`) the live ad is showing, not the raw copy.
+    const adText = cache && isAdFresh(cache) ? formatAdLabel(cache.brandName, cache.adText) : undefined;
     return reassertInjection(this.paths, { renderScriptPath: this.renderScriptPath, adText });
   }
 
@@ -68,6 +70,8 @@ export class ClaudeCliAdapter implements InjectionAdapter {
     const cache = {
       adText: serve.creative.adText,
       clickUrl: serve.creative.clickUrl,
+      // Stored raw; the status-line render script composes `<brandName> · <adText>` itself.
+      brandName: serve.creative.brandName,
       displayDomain: serve.creative.displayDomain,
       iconUrl: serve.creative.iconUrl,
       creativeId: serve.creative.creativeId,
@@ -80,10 +84,11 @@ export class ClaudeCliAdapter implements InjectionAdapter {
     }
     // Legacy global cache → fallback for sessions whose project dir doesn't match + older render scripts.
     writeAdCache(this.paths, cache);
-    // Refresh the spinner verb to the current ad (idempotent re-install; spinnerVerbs is global).
+    // Refresh the spinner verb to the current ad — brand-prefixed (`<brand> · <ad>`), so the "thinking"
+    // verb reads e.g. "Ramp · save time and money" (idempotent re-install; spinnerVerbs is global).
     installClaudeCliAdapter(this.paths, {
       renderScriptPath: this.renderScriptPath,
-      adText: serve.creative.adText,
+      adText: formatAdLabel(serve.creative.brandName, serve.creative.adText),
     });
   }
 }

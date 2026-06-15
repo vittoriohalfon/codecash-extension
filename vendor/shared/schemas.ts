@@ -49,11 +49,15 @@ export const AdCreativeSchema = z.object({
   body: z.string().max(280).optional(),
   clickUrl: z.string().url(),
   /**
-   * The advertiser's bare destination domain (e.g. "btcpp.dev"), shown verbatim at the end of the
-   * status-line ad as `ad· <adText> ∿ <displayDomain>`. Server-derived from the REAL advertiser URL
-   * (clickUrl is rewritten to our /c/[token] redirect before it reaches the client, so the client
-   * can't recover the domain itself). Purely a human-readable label — the click target is clickUrl.
-   * Optional for back-compat: an older server omits it and the client renders `ad· <adText>` alone.
+   * The advertiser/company name shown BEFORE the ad copy in the status-line ad as
+   * `<brandName> · <adText>` (e.g. "Ramp · save time and money"). Optional for back-compat: an older
+   * server omits it and the client renders the ad copy alone.
+   */
+  brandName: z.string().max(40).optional(),
+  /**
+   * LEGACY (deprecated): the advertiser's bare destination domain, once shown as
+   * `ad· <adText> ∿ <displayDomain>`. Superseded by `brandName` in the ad line. Still sent for
+   * back-compat (an older render script falls back to it); new clients prefer `brandName`.
    */
   displayDomain: z.string().max(120).optional(),
   /** base64-encoded icon, optional (CLAUDE.md). */
@@ -78,7 +82,9 @@ export type AdServeResponse = z.infer<typeof AdServeResponseSchema>;
 export const AdCacheSchema = z.object({
   adText: z.string(),
   clickUrl: z.string().url(),
-  /** Advertiser's bare domain, appended to the status line as `∿ <displayDomain>` (see AdCreativeSchema). */
+  /** Company name shown before the ad copy as `<brandName> · <adText>` (see AdCreativeSchema). */
+  brandName: z.string().max(40).optional(),
+  /** LEGACY: advertiser's bare domain, once appended as `∿ <displayDomain>` (see AdCreativeSchema). */
   displayDomain: z.string().max(120).optional(),
   iconUrl: z.string().optional(),
   creativeId: z.string().uuid(),
@@ -221,11 +227,10 @@ export const AdvertiserBidSchema = z.object({
   headline: z.string().trim().min(3).max(60),
   clickUrl: z.string().url().startsWith("https://", "Destination URL must be https://").max(2048),
   /**
-   * Optional advertiser-typed domain shown in the ad line (e.g. "btcpp.dev"). Accepts a bare domain
-   * or a full URL; the server normalizes it to a bare host. Left blank → the server derives one from
-   * clickUrl. Loose max (a URL is allowed); normalization, not zod, produces the final short value.
+   * The advertiser/company name shown before the ad copy (`<brandName> · <headline>`). One destination
+   * URL is all we ask for now — the displayed domain is no longer collected (it was redundant friction);
+   * the brand name is what developers see. Optional server-side for back-compat, required by the form.
    */
-  displayDomain: z.string().trim().max(2048).optional(),
   brandName: z.string().trim().max(40).optional(),
   iconDataUrl: z
     .string()

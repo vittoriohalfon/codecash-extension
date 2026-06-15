@@ -68,6 +68,32 @@ describe("adapter → cache → render pipeline", () => {
     expect(res.stdout).toContain(SERVE.creative.clickUrl); // OSC 8 hyperlink target
   });
 
+  it("renders the brand-prefixed line `<brand> · <ad>` and sets it as the spinner verb", async () => {
+    const paths = codecashPaths(home);
+    const adapter = new ClaudeCliAdapter(RENDER_MJS, paths);
+    const creative = { ...SERVE.creative, brandName: "Ramp", adText: "save time and money" };
+    await adapter.pushAd({ ...SERVE, creative });
+
+    // Cache carries the raw copy + brand; the render script composes the label.
+    const cache = JSON.parse(readFileSync(paths.adCache, "utf8"));
+    expect(cache).toMatchObject({ adText: "save time and money", brandName: "Ramp" });
+
+    // Spinner verb is the brand-prefixed string (the "thinking" verb reads "Ramp · save time and money").
+    const settings = JSON.parse(readFileSync(paths.claudeSettings, "utf8"));
+    expect(settings.spinnerVerbs).toEqual({ mode: "replace", verbs: ["Ramp · save time and money"] });
+
+    const res = spawnSync("node", [RENDER_MJS], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+      input: "{}",
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Ramp · save time and money");
+    expect(res.stdout).not.toContain("ad·"); // brand line drops the legacy disclosure
+    expect(res.stdout).not.toContain("∿"); // and the legacy domain suffix
+    expect(res.stdout).toContain(creative.clickUrl); // OSC 8 hyperlink target
+  });
+
   it("omits the domain separator when the serve carried no displayDomain (back-compat)", async () => {
     const paths = codecashPaths(home);
     const adapter = new ClaudeCliAdapter(RENDER_MJS, paths);

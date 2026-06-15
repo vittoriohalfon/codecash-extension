@@ -4,6 +4,15 @@ import { join } from "node:path";
 import { VIEW_TICK_INTERVAL_MS, MICROS_PER_USD, type EarningsSnapshot } from "@codecash/shared";
 import { nextFetchDelayMs } from "../lib/rotation.js";
 import { ClaudeCliAdapter } from "../adapters/claude-cli/index.js";
+import type { PreflightResult } from "../adapters/types.js";
+import { formatAdLabel } from "../lib/adLabel.js";
+import type { PanelSpinnerBridge } from "../lib/panelBridge.js";
+import {
+  createPanelBridge,
+  detectClaudeCodePanel,
+  MIN_CLAUDE_CODE_PANEL_VERSION,
+  type PanelDetection,
+} from "./panelSurface.js";
 import { ApiClient } from "../lib/apiClient.js";
 import { AuthStore, looksLikeToken, shouldRotateToken } from "../lib/auth.js";
 import { ServeController, type ServeState } from "../lib/serveController.js";
@@ -27,6 +36,9 @@ const DEFAULT_BASE_URL =
 
 /** globalState key for the one-time connect nonce, so a malicious page can't inject a token. */
 const PENDING_STATE_KEY = "codecash.pendingConnectState";
+
+/** The placeholder ad shown the instant we enable, before the first real serve arrives. */
+const SEED_AD_TEXT = "codecash — get paid for waiting";
 
 /**
  * How long a piggybacked earnings snapshot stays fresh enough to skip the cold-start /api/me/earnings
@@ -58,6 +70,12 @@ export class CodecashService {
   private readonly auth: AuthStore;
   private readonly api: ApiClient;
   private readonly adapter: ClaudeCliAdapter;
+  /**
+   * The claude-code (VS Code panel) surface: mirrors the live ad text into `claudeCode.spinnerVerbs`
+   * so users of the Claude Code *extension panel* (not just the terminal CLI) see the ad as the
+   * spinner verb. Driven in parallel to {@link adapter}; best-effort, never breaks the CLI surface.
+   */
+  private readonly panel: PanelSpinnerBridge;
   private controller: ServeController | null = null;
   private reporter: TelemetryReporter | null = null;
   /** Anonymous, pre-auth funnel + crash reporter (always available, even before sign-in). */
@@ -111,6 +129,7 @@ export class CodecashService {
     // This window's project folder keys the per-workspace ad cache → distinct ad per parallel session.
     const workspaceDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
     this.adapter = new ClaudeCliAdapter(renderScriptPath, this.paths, workspaceDir);
+    this.panel = createPanelBridge(context.globalState, context.globalStorageUri.fsPath);
     this.out = vscode.window.createOutputChannel("codecash");
     // Resolve the base URL per-request so changing `codecash.apiBaseUrl` takes effect without reload.
     this.api = new ApiClient({ baseUrl: () => this.baseUrl(), getToken: this.auth.getToken });
@@ -196,21 +215,23 @@ export class CodecashService {
   private async resumeIfEnabled(): Promise<void> {
     const enabled = vscode.workspace.getConfiguration("codecash").get<boolean>("enabled") ?? false;
     if (!enabled || this.running || !this.auth.hasToken()) return;
-    const pf = await this.adapter.preflight();
-    if (!pf.ok) {
-      this.clientReporter.signal("preflight_failed", { reason: pf.reason, ccVersion: pf.ccVersion ?? undefined });
-      this.out.appendLine(`resume skipped: ${pf.reason}`);
+    const surf = await this.detectSurfaces();
+    if (!surf.ok) {
+      this.clientReporter.signal("preflight_failed", {
+        reason: surf.reason,
+        ccVersion: surf.cli.ccVersion ?? undefined,
+      });
+      this.out.appendLine(`resume skipped: ${surf.reason}`);
       return;
     }
-    try {
-      await this.adapter.enable("codecash — get paid for waiting");
-    } catch (e) {
-      this.clientReporter.reportError(e, "resume.inject");
-      this.out.appendLine(`resume failed: ${stringifyErr(e)}`);
+    const injected = await this.injectSurfaces(SEED_AD_TEXT, surf);
+    if (!injected.ok) {
+      this.clientReporter.reportError(injected.error, "resume.inject");
+      this.out.appendLine(`resume failed: ${stringifyErr(injected.error)}`);
       return;
     }
     await this.startServing();
-    this.out.appendLine(`resumed serving on Claude Code ${pf.ccVersion}`);
+    this.out.appendLine(`resumed serving on ${surf.label}`);
   }
 
   /**
@@ -331,11 +352,89 @@ export class CodecashService {
     }
   }
 
+  /**
+   * Detect which ad surfaces are available: the **claude-cli** terminal surface (`claude` on PATH +
+   * version gate) and/or the **claude-code** extension-panel surface (the Claude Code VS Code
+   * extension is installed). Either one is enough to enable — a panel-only user (extension installed,
+   * no `claude` on PATH) used to be turned away by the CLI-only preflight. `label` describes the live
+   * surface(s) for the success toast; `reason` explains a hard no-surface failure.
+   */
+  private async detectSurfaces(): Promise<{
+    ok: boolean;
+    cli: PreflightResult;
+    panel: PanelDetection | null;
+    label?: string;
+    reason?: string;
+  }> {
+    const cli = await this.adapter.preflight();
+    const panel = detectClaudeCodePanel();
+    const panelOk = !!panel && panel.compatible;
+    if (cli.ok) {
+      return {
+        ok: true,
+        cli,
+        panel,
+        label: `Claude Code ${cli.ccVersion}${panelOk ? " + extension panel" : ""}`,
+      };
+    }
+    if (panelOk) {
+      return {
+        ok: true,
+        cli,
+        panel,
+        label: `the Claude Code extension panel${panel!.version ? ` ${panel!.version}` : ""}`,
+      };
+    }
+    const reason =
+      cli.ccVersion != null
+        ? (cli.reason ?? "Claude Code is not compatible")
+        : panel != null
+          ? `the Claude Code extension is too old (need ${MIN_CLAUDE_CODE_PANEL_VERSION}+)`
+          : "Claude Code not found — install the CLI or the Claude Code VS Code extension";
+    return { ok: false, cli, panel, reason };
+  }
+
+  /**
+   * Inject every available surface, best-effort. Succeeds when AT LEAST ONE surface is now live; only
+   * fails (returning the first surface's error, for an actionable message) when none could be
+   * injected. The panel surface is always wrapped so a settings.json-write hiccup can never block the
+   * terminal surface, and vice-versa.
+   */
+  private async injectSurfaces(
+    seed: string,
+    surf: { cli: PreflightResult; panel: PanelDetection | null },
+  ): Promise<{ ok: true } | { ok: false; error: unknown }> {
+    let anyOk = false;
+    let firstErr: unknown;
+    if (surf.cli.ok) {
+      try {
+        await this.adapter.enable(seed);
+        anyOk = true;
+      } catch (e) {
+        firstErr = e;
+      }
+    }
+    if (surf.panel?.compatible) {
+      try {
+        await this.panel.enable(seed);
+        anyOk = true;
+      } catch (e) {
+        firstErr ??= e;
+        this.clientReporter.reportError(e, "enable.panel");
+        this.out.appendLine(`panel inject failed (non-fatal): ${stringifyErr(e)}`);
+      }
+    }
+    return anyOk ? { ok: true } : { ok: false, error: firstErr ?? new Error("no injectable surface") };
+  }
+
   async enable(): Promise<void> {
-    const pf = await this.adapter.preflight();
-    if (!pf.ok) {
-      this.clientReporter.signal("preflight_failed", { reason: pf.reason, ccVersion: pf.ccVersion ?? undefined });
-      void vscode.window.showWarningMessage(`codecash: ${pf.reason}`);
+    const surf = await this.detectSurfaces();
+    if (!surf.ok) {
+      this.clientReporter.signal("preflight_failed", {
+        reason: surf.reason,
+        ccVersion: surf.cli.ccVersion ?? undefined,
+      });
+      void vscode.window.showWarningMessage(`codecash: ${surf.reason}`);
       return;
     }
     if (!this.auth.hasToken()) {
@@ -359,15 +458,14 @@ export class CodecashService {
       return;
     }
 
-    // Patch the surface up front so the spinner/status line are live even before the first ad. A
-    // refusal (missing/unparseable ~/.claude/settings.json) throws from the adapter — turn it into a
-    // clear message instead of an unhandled command error, and never flip `enabled` on a failed inject.
-    try {
-      await this.adapter.enable("codecash — get paid for waiting");
-    } catch (e) {
-      this.clientReporter.reportError(e, "enable.inject");
+    // Patch the surface(s) up front so the spinner/status line are live even before the first ad. We
+    // hard-fail only when NO surface could be injected (e.g. CLI present but ~/.claude/settings.json
+    // missing/unparseable, and no panel) — never flip `enabled` on a fully-failed inject.
+    const injected = await this.injectSurfaces(SEED_AD_TEXT, surf);
+    if (!injected.ok) {
+      this.clientReporter.reportError(injected.error, "enable.inject");
       void vscode.window.showWarningMessage(
-        `codecash: couldn't enable — ${stringifyErr(e)}. Your Claude Code settings were left untouched.`,
+        `codecash: couldn't enable — ${stringifyErr(injected.error)}. Your Claude Code settings were left untouched.`,
       );
       return;
     }
@@ -378,7 +476,7 @@ export class CodecashService {
 
     await this.startServing();
     void vscode.window.showInformationMessage(
-      `codecash enabled on Claude Code ${pf.ccVersion}. Your settings were backed up.`,
+      `codecash enabled on ${surf.label}. Your settings were backed up.`,
     );
   }
 
@@ -398,7 +496,20 @@ export class CodecashService {
     );
     this.controller = new ServeController({
       api: this.api,
-      sink: this.adapter,
+      // Fan each fetched ad out to both surfaces: the claude-cli adapter (terminal spinner + status
+      // line) and the claude-code panel bridge (the extension panel's spinner verb). The panel write
+      // is best-effort — a settings.json hiccup must never break the terminal surface or the loop.
+      sink: {
+        pushAd: async (serve) => {
+          await this.adapter.pushAd(serve);
+          try {
+            // Brand-prefixed (`<brand> · <ad>`) so the panel's "thinking" verb matches the terminal.
+            await this.panel.update(formatAdLabel(serve.creative.brandName, serve.creative.adText));
+          } catch (e) {
+            this.out.appendLine(`panel update failed (non-fatal): ${stringifyErr(e)}`);
+          }
+        },
+      },
       now: () => Date.now(),
       isVisible: () => this.lastVisible,
       onTelemetry: (type, ctx) => this.reporter?.report(type, ctx),
@@ -444,6 +555,13 @@ export class CodecashService {
     this.reporter = null;
     this.clearTimers();
     this.adapter.disable();
+    // Restore the panel's spinner verb too (best-effort — never let a config restore failure stop the
+    // disable path or strand the terminal restore that already ran).
+    try {
+      await this.panel.disable();
+    } catch (e) {
+      this.out.appendLine(`panel restore failed (non-fatal): ${stringifyErr(e)}`);
+    }
     // Leave the presence cohort promptly so other sessions' concurrency cap frees up immediately.
     writePresenceFile(
       this.paths.presence,
