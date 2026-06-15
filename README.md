@@ -10,13 +10,21 @@ tracking of your code, no second ad anywhere.
 > `codecash.apiBaseUrl`); the server-side ad auction, ledger, and payouts live in a separate
 > repository and are not part of this package.
 
-## Install & connect (one click)
+## Install & connect (two steps)
 
-1. Install the extension. A **Get paid for waiting** walkthrough opens automatically.
-2. Click **Connect & start earning**. Your browser opens, you sign in, and the editor is linked
-   and **turned on automatically** — no copy-paste, no command palette.
-3. That's it. The `codecash` status-bar item shows today's earnings; the next time your agent
-   "thinks", the spinner shows the ad.
+1. **Install the extension** — from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=codecash.codecash),
+   from [Open VSX](https://open-vsx.org/extension/codecash/codecash) (Cursor / Windsurf / VSCodium),
+   or straight from your terminal:
+   ```bash
+   code --install-extension codecash.codecash      # or: cursor / windsurf --install-extension …
+   ```
+   A **Get paid for waiting** walkthrough opens automatically once it's installed.
+2. **Connect it** — click **codecash** in the status bar (bottom-right), or click **Connect & start
+   earning** in the walkthrough. Your browser opens, you sign in, and the editor is linked and
+   **turned on automatically** — no copy-paste, no command palette.
+
+That's it. The `codecash` status-bar item shows today's earnings; the next time your agent "thinks",
+the spinner shows the ad.
 
 Changed your mind? **codecash: Disable ad injection** restores your original settings exactly.
 

@@ -26,6 +26,7 @@ const ALLOWED_PATHS = [
   "/api/events/telemetry",
   "/api/me/earnings",
   "/api/devices/refresh",
+  "/api/devices/revoke",
 ];
 
 describe("R4: the client only talks to known JSON endpoints (no code-fetch / self-update)", () => {
@@ -54,6 +55,7 @@ describe("R4: the client only talks to known JSON endpoints (no code-fetch / sel
     await api.postTelemetry([{ type: "view_threshold_met", adapter: "claude-cli", occurredAt: 1 }]);
     await api.fetchEarnings();
     await api.refreshToken();
+    await api.revokeToken();
 
     expect(calls.length).toBeGreaterThan(0);
     for (const p of calls) expect(ALLOWED_PATHS).toContain(p);

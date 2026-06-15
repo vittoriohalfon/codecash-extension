@@ -187,6 +187,19 @@ export class ApiClient {
     };
   }
 
+  /**
+   * POST /api/devices/revoke — kill this device's token server-side on sign-out, so a leaked token
+   * can't keep rotating within the refresh grace window after the user disconnects. Best-effort: the
+   * server is idempotent and an already-dead token is fine to "revoke" again, so this only throws on
+   * a transport failure (the caller swallows it and clears local storage regardless).
+   */
+  async revokeToken(): Promise<void> {
+    await this.fetchImpl(`${this.base()}/api/devices/revoke`, {
+      method: "POST",
+      headers: { ...this.authHeaders() },
+    });
+  }
+
   /** POST /api/devices/refresh — rotate the device token. Throws if the token is fully expired. */
   async refreshToken(): Promise<string> {
     const res = await this.fetchImpl(`${this.base()}/api/devices/refresh`, {

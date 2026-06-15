@@ -194,3 +194,17 @@ describe("ApiClient.refreshToken", () => {
     );
   });
 });
+
+describe("ApiClient.revokeToken", () => {
+  it("POSTs to /api/devices/revoke with the bearer token", async () => {
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ revoked: true }), { status: 200 }),
+    );
+    await client(fetchImpl as unknown as typeof fetch).revokeToken();
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("http://x/api/devices/revoke");
+    const init = fetchImpl.mock.calls[0]?.[1];
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toMatchObject({ authorization: "Bearer tok" });
+  });
+});

@@ -447,6 +447,16 @@ export class CodecashService {
 
   async signOut(): Promise<void> {
     if (this.running) await this.disable();
+    // Best-effort server-side revoke BEFORE we drop the local token: kills this device's token so it
+    // can't keep rotating within the server's refresh grace window after the user disconnects.
+    // Offline / already-expired → fall through; the local clear below still signs the user out.
+    if (this.auth.hasToken()) {
+      try {
+        await this.api.revokeToken();
+      } catch (e) {
+        this.out.appendLine(`sign-out: server revoke failed (clearing locally anyway): ${stringifyErr(e)}`);
+      }
+    }
     await this.auth.clear();
     this.todayMicros = 0;
     this.signals.clear(); // never carry one identity's earnings into the next sign-in
