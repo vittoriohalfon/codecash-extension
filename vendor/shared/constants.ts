@@ -5,13 +5,13 @@
  */
 
 /**
- * Dev's revenue share, in percent — an even 50/50 split with the platform.
+ * Dev's revenue share, in percent — a 70/30 split with the platform (the dev keeps 70%).
  *
  * This is the FALLBACK default. The runtime source of truth is the `flags.revSharePct` row
  * (authoritative since viral-mechanics Phase 2 §0), which the seed initializes to this value — keep
  * the two in sync.
  */
-export const DEFAULT_REV_SHARE_PCT = 50;
+export const DEFAULT_REV_SHARE_PCT = 70;
 
 /** A click is worth this many impressions. */
 export const CLICK_MULTIPLIER = 50;
@@ -44,7 +44,7 @@ export const SHARE_PROMPT_THRESHOLD_MICROS = 5 * MICROS_PER_USD; // $5.00
  * is active, BOTH the referrer and the invitee resolve a dev split of base + boost (clamped to the
  * cap), so the platform eats the difference and no extra ledger entry is created.
  */
-/** Extra percentage POINTS added to the dev split while a referral boost is active (50% → 60%). */
+/** Extra percentage POINTS added to the dev split while a referral boost is active (70% → 80%). */
 export const DEFAULT_REFERRAL_BOOST_PCT = 10;
 /** How long the boost lasts once the invitee activates, in days. */
 export const DEFAULT_REFERRAL_BOOST_DAYS = 30;
