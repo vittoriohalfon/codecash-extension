@@ -4,6 +4,19 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.1.6] — 2026-06-16
+
+### Changed
+- **Coexists with the codecash command-line app.** If you also run the standalone `codecash` CLI on the
+  same machine, the extension now automatically steps aside while the CLI is serving (and takes back over
+  if you stop it), so the two never double-count or fight over your Claude Code settings.
+- First release published to **Open VSX** as well as the VS Code Marketplace, so Cursor, Windsurf, and
+  VSCodium users can install codecash too.
+
+### Internal
+- The status-line ad cache is now keyed per Claude Code session, so two terminals in the same project
+  each show their own ad.
+
 ## [0.1.5] — 2026-06-15
 
 ### Changed

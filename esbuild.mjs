@@ -4,12 +4,20 @@ import { fileURLToPath } from "node:url";
 const watch = process.argv.includes("--watch");
 
 /**
- * `@codecash/shared` is vendored into this repo (the non-secret subset only — constants, zod
- * schemas, pricing; never the server-side token signing). Alias the bare specifier to the vendored
- * entry so the source can keep importing `@codecash/shared` unchanged.
+ * `@codecash/shared` and `@codecash/client-core` are vendored into this repo (the non-secret subsets
+ * only — constants, zod schemas, pricing; the vscode-free client money loop + claude-cli adapter; never
+ * the server-side token signing). Alias the bare specifiers to the vendored entries so the source can
+ * keep importing them unchanged. Keep these in lockstep with tsconfig.json paths + vitest.config.ts.
  */
 const alias = {
   "@codecash/shared": fileURLToPath(new URL("./vendor/shared/index.ts", import.meta.url)),
+  "@codecash/client-core": fileURLToPath(new URL("./vendor/client-core/index.ts", import.meta.url)),
+  "@codecash/client-core/render": fileURLToPath(
+    new URL("./vendor/client-core/adapters/claude-cli/render.ts", import.meta.url),
+  ),
+  "@codecash/client-core/daemon-lock": fileURLToPath(
+    new URL("./vendor/client-core/lib/daemonControl.ts", import.meta.url),
+  ),
 };
 
 /**
@@ -42,7 +50,7 @@ const extensionConfig = {
  * fast and can never fail on a missing module — the "never break the CLI" prime directive.
  */
 const renderConfig = {
-  entryPoints: ["src/adapters/claude-cli/render.ts"],
+  entryPoints: ["src/render.ts"],
   bundle: true,
   format: "esm",
   platform: "node",

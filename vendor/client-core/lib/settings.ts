@@ -37,22 +37,82 @@ function writeJsonAtomic(path: string, value: unknown): void {
 }
 
 /**
- * True if a statusLine spec is our own render script at the CURRENT path (so we never chain-capture
- * ourselves, and so reassert (R1) can tell drift — incl. a stale path after an extension update —
- * from in-sync). Matching on the path means an old, post-update command no longer counts as "ours".
+ * Explicit, stable ownership marker carried by BOTH the extension and CLI statusLine commands (T23).
+ * Appended as a trailing shell comment so it's inert at runtime (POSIX shells drop everything after
+ * `#`; on cmd.exe it's harmless trailing args the render script ignores) yet always present in the
+ * STORED command string for matching. This is what makes ownership detection variant-agnostic: the
+ * extension can recognize the CLI's statusLine and vice-versa, without either knowing the other's path
+ * — load-bearing for coexistence (one owner of the terminal surface) and for never capturing the
+ * other variant's command as the user's original.
  */
-export function isOurStatusLine(spec: unknown, renderScriptPath: string): boolean {
+export const STATUSLINE_MARKER = "codecash-statusline";
+
+/** Which codecash client wrote the statusLine — the command shape differs (see buildStatusLineCommand). */
+export type StatusLineVariant = "extension" | "cli";
+
+export interface StatusLineCommandOptions {
+  /** absolute path to the bundled render script (dist/render.mjs). */
+  renderScriptPath: string;
+  /** "extension" (`node "<path>"`) or "cli" (the D15 hybrid with a `|| codecash render` fallback). */
+  variant?: StatusLineVariant;
+  /** for the CLI variant: the absolute node binary (process.execPath) — covers PATH-less shells. */
+  nodePath?: string;
+}
+
+/**
+ * Build the `statusLine` command string for a render script. Both variants end with the
+ * {@link STATUSLINE_MARKER} comment so ownership is detectable across variants.
+ *   - extension: `node "<path>" # codecash-statusline`
+ *   - cli (D15 hybrid): `"<nodePath>" "<path>" || codecash render # codecash-statusline` — the
+ *     absolute node+script path covers PATH-less / nvm non-interactive shells, and the
+ *     `|| codecash render` fallback recovers if the absolute path drifts after an
+ *     `npm i -g codecash@latest` (the global `codecash` bin re-resolves the current render script).
+ */
+export function buildStatusLineCommand(opts: StatusLineCommandOptions): string {
+  const marker = ` # ${STATUSLINE_MARKER}`;
+  if (opts.variant === "cli") {
+    const node = opts.nodePath ?? "node";
+    return `"${node}" "${opts.renderScriptPath}" || codecash render${marker}`;
+  }
+  return `node "${opts.renderScriptPath}"${marker}`;
+}
+
+/**
+ * Variant-agnostic ownership: is this spec ANY codecash statusLine? Matches the explicit marker (which
+ * both variants carry) OR — for migration — an already-installed extension's marker-LESS legacy
+ * `node "<renderScriptPath>"` command when that path is known. Used so we never chain-capture our own
+ * (or the other variant's) statusLine as the user's original, and for coexistence ownership checks.
+ */
+export function isOurStatusLine(spec: unknown, renderScriptPath?: string): boolean {
+  if (!spec || typeof spec !== "object") return false;
+  const cmd = (spec as StatusLineSpec).command;
+  if (typeof cmd !== "string") return false;
+  if (cmd.includes(STATUSLINE_MARKER)) return true; // any codecash variant (marker era)
+  // Migration: an extension installed before the marker existed wrote `node "<path>"` with no marker.
+  if (renderScriptPath && cmd.includes(renderScriptPath)) return true;
+  return false;
+}
+
+/**
+ * Exact-current check for R1 reassert: is the live statusLine byte-for-byte the command we'd write
+ * now? Distinct from {@link isOurStatusLine} (ownership) — it's how reassert tells a drifted/stale-path
+ * codecash command (rewrite it) from in-sync (leave it), without rewriting every refresh.
+ */
+export function isCurrentStatusLine(spec: unknown, expectedCommand: string): boolean {
   return (
     !!spec &&
     typeof spec === "object" &&
-    typeof (spec as StatusLineSpec).command === "string" &&
-    (spec as StatusLineSpec).command.includes(renderScriptPath)
+    (spec as StatusLineSpec).command === expectedCommand
   );
 }
 
 export interface InstallOptions {
   /** absolute path to the bundled render script (dist/render.mjs). */
   renderScriptPath: string;
+  /** which client is installing — selects the statusLine command shape. Defaults to "extension". */
+  variant?: StatusLineVariant;
+  /** for the CLI variant: the absolute node binary (process.execPath). */
+  nodePath?: string;
   /** current ad text to show as the spinner verb; omit to leave spinnerVerbs untouched. */
   adText?: string;
   /** clock injection for tests. */
@@ -105,7 +165,11 @@ export function installClaudeCliAdapter(paths: CodecashPaths, opts: InstallOptio
 
   settings.statusLine = {
     type: "command",
-    command: `node "${opts.renderScriptPath}"`,
+    command: buildStatusLineCommand({
+      renderScriptPath: opts.renderScriptPath,
+      variant: opts.variant,
+      nodePath: opts.nodePath,
+    }),
     padding: 0,
   } satisfies StatusLineSpec;
 

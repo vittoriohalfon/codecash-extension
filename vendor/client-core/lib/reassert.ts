@@ -1,6 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { CodecashPaths } from "./paths.js";
-import { installClaudeCliAdapter, isOurStatusLine } from "./settings.js";
+import {
+  installClaudeCliAdapter,
+  buildStatusLineCommand,
+  isCurrentStatusLine,
+  type StatusLineVariant,
+} from "./settings.js";
 
 /**
  * R1 self-healing: make the claude-cli injection true again if `~/.claude/settings.json` drifted out
@@ -20,6 +25,10 @@ import { installClaudeCliAdapter, isOurStatusLine } from "./settings.js";
 export interface ReassertOptions {
   /** absolute path to the bundled render script (dist/render.mjs) — the current one. */
   renderScriptPath: string;
+  /** which client is reasserting — selects the expected statusLine command shape. Default "extension". */
+  variant?: StatusLineVariant;
+  /** for the CLI variant: the absolute node binary (process.execPath). */
+  nodePath?: string;
   /** current fresh ad text to restore as the spinner verb on re-install; omit when none is fresh. */
   adText?: string;
   /** clock injection for tests (forwarded to installClaudeCliAdapter's one-time capture stamp). */
@@ -48,12 +57,22 @@ export function reassertInjection(paths: CodecashPaths, opts: ReassertOptions): 
     return { reasserted: false, reason: "unparseable" };
   }
 
-  if (isOurStatusLine(statusLine, opts.renderScriptPath)) return { reasserted: false, reason: "in_sync" };
+  // In sync only when the live command is byte-for-byte the one we'd write now — so a stale path after
+  // an update (or a variant/marker change) counts as drift and gets rewritten, while our own identical
+  // re-writes converge in one read instead of looping.
+  const expected = buildStatusLineCommand({
+    renderScriptPath: opts.renderScriptPath,
+    variant: opts.variant,
+    nodePath: opts.nodePath,
+  });
+  if (isCurrentStatusLine(statusLine, expected)) return { reasserted: false, reason: "in_sync" };
 
   // Drift: re-install. installClaudeCliAdapter is idempotent and won't re-capture (config.json
   // already exists from the original enable), so the user's true original stays preserved.
   const res = installClaudeCliAdapter(paths, {
     renderScriptPath: opts.renderScriptPath,
+    variant: opts.variant,
+    nodePath: opts.nodePath,
     adText: opts.adText,
     now: opts.now,
   });

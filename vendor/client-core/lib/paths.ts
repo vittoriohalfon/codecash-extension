@@ -5,6 +5,7 @@ import {
   AD_CACHE_FILE,
   SETTINGS_BACKUP_FILE,
   CODECASH_ADS_SUBDIR,
+  CODECASH_SESSION_CACHE_PREFIX,
 } from "@codecash/shared";
 
 /** Resolve all the on-disk locations the claude-cli adapter touches. */
@@ -32,4 +33,13 @@ export type CodecashPaths = ReturnType<typeof codecashPaths>;
 /** Per-workspace ad-cache file path for a given workspace key (see lib/workspaceKey.ts). */
 export function workspaceAdCachePath(paths: CodecashPaths, key: string): string {
   return join(paths.adsDir, `${key}.json`);
+}
+
+/**
+ * Per-SESSION ad-cache file path for a given session key (see lib/workspaceKey.ts `sessionKey`). The
+ * `s-` prefix keeps session and workspace caches in separate namespaces within `ads/` (so their 8-hex
+ * keys can't collide). The render script computes this same path from `session_id` — keep them mirrored.
+ */
+export function sessionAdCachePath(paths: CodecashPaths, key: string): string {
+  return join(paths.adsDir, `${CODECASH_SESSION_CACHE_PREFIX}${key}.json`);
 }

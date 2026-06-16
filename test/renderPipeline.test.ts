@@ -4,8 +4,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ClaudeCliAdapter } from "../src/adapters/claude-cli/index.js";
-import { codecashPaths } from "../src/lib/paths.js";
+import { ClaudeCliAdapter, codecashPaths } from "@codecash/client-core";
 import type { AdServeResponse } from "@codecash/shared";
 
 /**

@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { AD_CACHE_TTL_MS, AdCacheSchema, type AdCache } from "@codecash/shared";
-import { workspaceAdCachePath, type CodecashPaths } from "./paths.js";
+import { workspaceAdCachePath, sessionAdCachePath, type CodecashPaths } from "./paths.js";
 
 /** Atomic JSON write (temp + rename) so a crash can't leave the render script a half-written file. */
 function writeJsonAtomic(file: string, value: unknown): void {
@@ -26,6 +26,25 @@ export function writeAdCache(paths: CodecashPaths, cache: AdCache): void {
  */
 export function writeWorkspaceAdCache(paths: CodecashPaths, key: string, cache: AdCache): void {
   writeJsonAtomic(workspaceAdCachePath(paths, key), cache);
+}
+
+/**
+ * Per-SESSION ad cache (the confirmed per-session status-line surface). The CLI daemon writes one per
+ * adopted `session_id` so two terminals in the SAME repo each render+credit their OWN creative — the
+ * render script resolves the same key from the statusLine `session_id` and reads it FIRST, ahead of the
+ * per-workspace + global fallbacks (see render.ts). Keyed by `sessionKey(sessionId)`.
+ */
+export function writeSessionAdCache(paths: CodecashPaths, key: string, cache: AdCache): void {
+  writeJsonAtomic(sessionAdCachePath(paths, key), cache);
+}
+
+/** Remove a per-session ad cache (best-effort) when its session is reaped — TTL is the backstop. */
+export function clearSessionAdCache(paths: CodecashPaths, key: string): void {
+  try {
+    unlinkSync(sessionAdCachePath(paths, key));
+  } catch {
+    /* already gone / never written */
+  }
 }
 
 export function readAdCache(paths: CodecashPaths): AdCache | null {

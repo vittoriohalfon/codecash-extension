@@ -1,0 +1,38 @@
+/**
+ * @codecash/client-core — the vscode-free client money loop, shared by BOTH the VS Code extension
+ * (apps/extension) and the standalone CLI + daemon (apps/cli). It owns the cadence/presence/UI glue
+ * around the already-built, server-trusted money logic: fetch → render → accrue → credit → rotate,
+ * plus the claude-cli injection adapter, settings backup/restore, presence, and the local ad cache.
+ *
+ * It re-hosts — never reimplements — the money path: the server signs every billable token and
+ * verifies sig + idempotency + budget + killswitch, so neither client can fabricate money.
+ *
+ * The status-line render display logic is also exported here (and via the `./render` subpath, which
+ * esbuild bundles into a zero-dependency `render.mjs`).
+ */
+
+// ── core money loop ──────────────────────────────────────────────────────────────────────────
+export * from "./lib/apiClient.js";
+export * from "./lib/serveController.js";
+export * from "./lib/viewTracker.js";
+export * from "./lib/presence.js";
+export * from "./lib/telemetry.js";
+export * from "./lib/rotation.js";
+export * from "./lib/auth.js";
+export * from "./lib/signalCache.js";
+export * from "./lib/idempotency.js";
+export * from "./lib/tokenClaims.js";
+export * from "./lib/clientReporter.js";
+
+// ── claude-cli terminal adapter + its support ──────────────────────────────────────────────────
+export * from "./lib/paths.js";
+export * from "./lib/settings.js";
+export * from "./lib/adCache.js";
+export * from "./lib/osc8.js";
+export * from "./lib/workspaceKey.js";
+export * from "./lib/preflight.js";
+export * from "./lib/reassert.js";
+export * from "./lib/adLabel.js";
+export * from "./adapters/types.js";
+export * from "./adapters/claude-cli/index.js";
+export * from "./adapters/claude-cli/render.js";

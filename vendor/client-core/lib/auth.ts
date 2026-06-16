@@ -8,10 +8,16 @@
 
 import { DEVICE_TOKEN_ROTATE_AHEAD_RATIO } from "@codecash/shared";
 
+/**
+ * Minimal secret-storage seam. `vscode.SecretStorage` satisfies it (its `Thenable` returns are
+ * structurally `PromiseLike`), as does the CLI's file-backed `FileSecretStore` (which returns real
+ * Promises). Typed with `PromiseLike` rather than VS Code's `Thenable` global precisely so this stays
+ * `vscode`-free and can live in the shared client core with no `@types/vscode` dependency.
+ */
 export interface SecretStore {
-  get(key: string): Thenable<string | undefined> | Promise<string | undefined>;
-  store(key: string, value: string): Thenable<void> | Promise<void>;
-  delete(key: string): Thenable<void> | Promise<void>;
+  get(key: string): PromiseLike<string | undefined>;
+  store(key: string, value: string): PromiseLike<void>;
+  delete(key: string): PromiseLike<void>;
 }
 
 const TOKEN_KEY = "codecash.deviceToken";

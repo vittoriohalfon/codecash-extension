@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { versionGte } from "../lib/preflight.js";
+import { versionGte } from "@codecash/client-core";
 import { resolveUserSettingsPath, writeUserSettingFile } from "../lib/userSettings.js";
 import {
   isSpinnerVerbsValue,
@@ -24,8 +24,9 @@ const CLAUDE_CODE_EXTENSION_ID = "anthropic.claude-code";
  * Lowest Claude Code extension version we treat as panel-capable. The panel's spinner reads the verb
  * list from `claudeCode.spinnerVerbs` (verified by inspecting the installed 2.1.138 and 2.1.177
  * bundles); the setting's schema first shipped in 2.1.23. This floor is best-effort: writing the
- * setting on an older build is harmless (the panel ignores an unknown key) and crediting is
- * opportunity-to-see (window focus), the same basis as the terminal surface.
+ * setting on an older build is harmless (the panel ignores an unknown key) and crediting stays
+ * focus-confirmed (the same basis as the terminal surface); the panel spinner is a shared display
+ * line, never a separate billable impression.
  */
 export const MIN_CLAUDE_CODE_PANEL_VERSION = "2.1.23";
 

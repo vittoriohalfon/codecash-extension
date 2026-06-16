@@ -2,10 +2,36 @@ import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { VIEW_TICK_INTERVAL_MS, MICROS_PER_USD, type EarningsSnapshot } from "@codecash/shared";
-import { nextFetchDelayMs } from "../lib/rotation.js";
-import { ClaudeCliAdapter } from "../adapters/claude-cli/index.js";
-import type { PreflightResult } from "../adapters/types.js";
-import { formatAdLabel } from "../lib/adLabel.js";
+// The whole vscode-free money loop + claude-cli adapter now lives in @codecash/client-core (shared
+// with the standalone CLI/daemon). This host owns only the VS Code glue around it.
+import {
+  nextFetchDelayMs,
+  ClaudeCliAdapter,
+  type PreflightResult,
+  formatAdLabel,
+  ApiClient,
+  AuthStore,
+  looksLikeToken,
+  shouldRotateToken,
+  ServeController,
+  type ServeState,
+  SignalCache,
+  TelemetryReporter,
+  ClientReporter,
+  codecashPaths,
+  type CodecashPaths,
+  heartbeat,
+  dropInstance,
+  shouldAccrue,
+  readPresenceFile,
+  writePresenceFile,
+} from "@codecash/client-core";
+import {
+  daemonLiveness,
+  daemonLockPath,
+  daemonDeferenceTransition,
+  type DaemonLiveness,
+} from "@codecash/client-core/daemon-lock";
 import type { PanelSpinnerBridge } from "../lib/panelBridge.js";
 import {
   createPanelBridge,
@@ -13,20 +39,6 @@ import {
   MIN_CLAUDE_CODE_PANEL_VERSION,
   type PanelDetection,
 } from "./panelSurface.js";
-import { ApiClient } from "../lib/apiClient.js";
-import { AuthStore, looksLikeToken, shouldRotateToken } from "../lib/auth.js";
-import { ServeController, type ServeState } from "../lib/serveController.js";
-import { SignalCache } from "../lib/signalCache.js";
-import { TelemetryReporter } from "../lib/telemetry.js";
-import { ClientReporter } from "../lib/clientReporter.js";
-import { codecashPaths, type CodecashPaths } from "../lib/paths.js";
-import {
-  heartbeat,
-  dropInstance,
-  shouldAccrue,
-  readPresenceFile,
-  writePresenceFile,
-} from "../lib/presence.js";
 
 // Baked at build time via esbuild `define` (see esbuild.mjs). A published build can ship a prod
 // server URL through the CODECASH_DEFAULT_API_BASE_URL env var without any code edit, while local
@@ -95,6 +107,15 @@ export class CodecashService {
   private readonly extensionId: string;
   private readonly memento: vscode.Memento;
   private readonly paths: CodecashPaths = codecashPaths();
+  /** The CLI daemon's single-instance lock (Phase D / T22 coexistence) — read each tick to defer. */
+  private readonly daemonLock = daemonLockPath(this.paths.codecashDir);
+  /**
+   * True while we've stood down because a live CLI daemon owns the claude-cli loop (asymmetric
+   * coexistence: the daemon never checks us, so there's no livelock). While deferred we stop
+   * serving/accruing/crediting AND stop touching ~/.claude/settings.json (the CLI owns it); the tick
+   * keeps polling daemon liveness and resumes us when it goes away. See {@link syncDaemonCoexistence}.
+   */
+  private deferredToDaemon = false;
   /** Unique per extension-host (per VS Code window) — identity in the shared presence map. */
   private readonly instanceId = randomUUID();
   /** Last computed accrual visibility (focus OR present-within-cap); seeds the view tracker. */
@@ -224,14 +245,19 @@ export class CodecashService {
       this.out.appendLine(`resume skipped: ${surf.reason}`);
       return;
     }
-    const injected = await this.injectSurfaces(SEED_AD_TEXT, surf);
-    if (!injected.ok) {
-      this.clientReporter.reportError(injected.error, "resume.inject");
-      this.out.appendLine(`resume failed: ${stringifyErr(injected.error)}`);
-      return;
+    // Don't inject over a live CLI daemon (Phase D / T22) — startServing() stands us down and the
+    // tick resumes us when it stops. See enable()'s matching gate.
+    const daemonLive = this.daemonOwnsLoop();
+    if (!daemonLive) {
+      const injected = await this.injectSurfaces(SEED_AD_TEXT, surf);
+      if (!injected.ok) {
+        this.clientReporter.reportError(injected.error, "resume.inject");
+        this.out.appendLine(`resume failed: ${stringifyErr(injected.error)}`);
+        return;
+      }
     }
     await this.startServing();
-    this.out.appendLine(`resumed serving on ${surf.label}`);
+    this.out.appendLine(daemonLive ? "resumed (deferred to the CLI daemon)" : `resumed serving on ${surf.label}`);
   }
 
   /**
@@ -461,13 +487,20 @@ export class CodecashService {
     // Patch the surface(s) up front so the spinner/status line are live even before the first ad. We
     // hard-fail only when NO surface could be injected (e.g. CLI present but ~/.claude/settings.json
     // missing/unparseable, and no panel) — never flip `enabled` on a fully-failed inject.
-    const injected = await this.injectSurfaces(SEED_AD_TEXT, surf);
-    if (!injected.ok) {
-      this.clientReporter.reportError(injected.error, "enable.inject");
-      void vscode.window.showWarningMessage(
-        `codecash: couldn't enable — ${stringifyErr(injected.error)}. Your Claude Code settings were left untouched.`,
-      );
-      return;
+    //
+    // Exception (Phase D / T22): if the CLI daemon already owns the loop, do NOT inject a competing
+    // surface — we'd double-credit and fight over settings.json. Flip `enabled` so we take over when
+    // the CLI stops, and let startServing() stand us down; the tick resumes us when the daemon dies.
+    const daemonLive = this.daemonOwnsLoop();
+    if (!daemonLive) {
+      const injected = await this.injectSurfaces(SEED_AD_TEXT, surf);
+      if (!injected.ok) {
+        this.clientReporter.reportError(injected.error, "enable.inject");
+        void vscode.window.showWarningMessage(
+          `codecash: couldn't enable — ${stringifyErr(injected.error)}. Your Claude Code settings were left untouched.`,
+        );
+        return;
+      }
     }
 
     await vscode.workspace
@@ -476,7 +509,9 @@ export class CodecashService {
 
     await this.startServing();
     void vscode.window.showInformationMessage(
-      `codecash enabled on ${surf.label}. Your settings were backed up.`,
+      daemonLive
+        ? "codecash enabled. The codecash command-line app is serving on this machine — the extension will take over automatically if you stop it."
+        : `codecash enabled on ${surf.label}. Your settings were backed up.`,
     );
   }
 
@@ -527,6 +562,9 @@ export class CodecashService {
     // Wrapped so a throw in a timer callback can't surface as an unhandled rejection on the host.
     this.tickTimer = setInterval(() => {
       try {
+        // First, the coexistence poll (Phase D / T22): if a CLI daemon owns the loop, stand down this
+        // tick and skip serving entirely (the daemon credits; we'd double-credit + fight settings).
+        if (this.syncDaemonCoexistence()) return;
         this.recomputeVisibility();
         this.controller?.tick();
         this.reporter?.flush();
@@ -535,6 +573,14 @@ export class CodecashService {
       }
     }, VIEW_TICK_INTERVAL_MS);
     this.startSelfHealing(); // keep the injection true if settings.json drifts (R1)
+
+    // If a CLI daemon already owns the loop, stand down now instead of fetching a competing surface;
+    // the tick keeps polling and resumes us (re-inject + serve) when the daemon goes away.
+    if (this.syncDaemonCoexistence()) {
+      this.renderWidget();
+      return;
+    }
+
     this.recomputeVisibility(); // seed visibility before the first serve
 
     // The first fetch; refetch() schedules each subsequent one off the server's rotation cadence
@@ -546,6 +592,85 @@ export class CodecashService {
     this.renderWidget();
   }
 
+  /**
+   * Whether a live CLI daemon currently owns the loop. FAILS CLOSED (finding C1): an indeterminate
+   * lock read (present-but-unreadable — transient EACCES/EBUSY or a torn file) holds the CURRENT
+   * stance rather than resuming, so a read hiccup can never flip us out of deference into a
+   * double-serve. Only POSITIVE evidence the daemon is gone (lock absent / pid dead / mtime stale)
+   * resumes us; only a positive "live" stands us down. Never throws.
+   */
+  private daemonOwnsLoop(): boolean {
+    let liveness: DaemonLiveness;
+    try {
+      liveness = daemonLiveness(this.daemonLock, Date.now());
+    } catch {
+      liveness = "unknown";
+    }
+    if (liveness === "unknown") return this.deferredToDaemon; // can't tell → hold the current stance.
+    return liveness === "live";
+  }
+
+  /**
+   * Coexistence with the standalone CLI daemon (Phase D / T22). The daemon and the extension both
+   * serve the claude-cli surface and both credit THIS device — if both ran we'd double-credit and
+   * fight over ~/.claude/settings.json. Resolution is asymmetric (see {@link daemonDeferenceTransition}):
+   * a live daemon unconditionally owns the loop, so the extension stands down within one tick and
+   * resumes when the daemon goes away. Returns true while deferred (the caller skips its serve work).
+   * Never throws, and fails closed: an indeterminate lock read holds the current stance rather than
+   * resuming (see {@link daemonOwnsLoop}), so a transient hiccup can't open a double-serve window.
+   */
+  private syncDaemonCoexistence(): boolean {
+    switch (daemonDeferenceTransition(this.deferredToDaemon, this.daemonOwnsLoop())) {
+      case "enter":
+        this.enterDaemonDeference();
+        break;
+      case "exit":
+        void this.exitDaemonDeference();
+        break;
+    }
+    return this.deferredToDaemon;
+  }
+
+  /**
+   * Stand down because a live CLI daemon now owns the claude-cli loop: cancel the pending fetch and
+   * freeze accrual (belt-and-suspenders with the refetch()/reassert guards). We deliberately do NOT
+   * restore ~/.claude/settings.json — the CLI owns it now and the daemon re-writes the spinner each
+   * tick; restoring could clobber the CLI's surface. The controller + timers stay alive so the tick
+   * keeps polling daemon liveness and {@link exitDaemonDeference} can resume us.
+   */
+  private enterDaemonDeference(): void {
+    this.deferredToDaemon = true;
+    if (this.fetchTimer) clearTimeout(this.fetchTimer);
+    this.fetchTimer = undefined;
+    this.controller?.setVisible(false);
+    this.out.appendLine("standing down — the codecash CLI daemon is serving on this machine");
+    this.renderWidget();
+  }
+
+  /**
+   * Resume after the CLI daemon went away: re-assert OUR surface (settings now reflect the CLI's
+   * install, so a plain reassert would no-op) and restart the fetch loop. Best-effort re-inject — on
+   * failure the self-healing backstop + the next pushAd retry; we never throw out of the tick. Guards
+   * against re-entrancy: if a daemon re-appeared during the await we leave the (re-)deference alone.
+   */
+  private async exitDaemonDeference(): Promise<void> {
+    this.deferredToDaemon = false;
+    this.out.appendLine("resuming — the codecash CLI daemon is gone; taking the loop back");
+    try {
+      const surf = await this.detectSurfaces();
+      if (surf.ok && !this.deferredToDaemon && this.running) {
+        await this.injectSurfaces(SEED_AD_TEXT, surf);
+      }
+    } catch (e) {
+      this.clientReporter.reportError(e, "coexistence.resume");
+    }
+    this.renderWidget();
+    if (this.running && !this.deferredToDaemon) {
+      this.recomputeVisibility(); // re-seed accrual visibility before the first post-resume serve
+      await this.refetch();
+    }
+  }
+
   async disable(): Promise<void> {
     this.running = false;
     this.authRequired = false; // not serving → no stale auth-required state to surface
@@ -554,7 +679,11 @@ export class CodecashService {
     this.reporter?.flush(); // don't strand the last buffered milestones on the way out
     this.reporter = null;
     this.clearTimers();
-    this.adapter.disable();
+    // While deferred to the CLI daemon we never owned ~/.claude/settings.json, so don't restore it —
+    // that would clobber the CLI's injection. The CLI's own `uninstall` manages its surface. (The
+    // panel restore below stays unconditional: the daemon is claude-cli only and never touches it.)
+    if (!this.deferredToDaemon) this.adapter.disable();
+    this.deferredToDaemon = false;
     // Restore the panel's spinner verb too (best-effort — never let a config restore failure stop the
     // disable path or strand the terminal restore that already ran).
     try {
@@ -625,7 +754,9 @@ export class CodecashService {
 
   /** Re-assert the injection if it drifted. No-op when stopped or already in sync. Never throws. */
   private reassertSurface(): void {
-    if (!this.running) return;
+    // While deferred to the CLI daemon (T22) the CLI owns settings.json — reasserting our injection
+    // would restart the very settings war the asymmetric guard exists to prevent.
+    if (!this.running || this.deferredToDaemon) return;
     try {
       const res = this.adapter.reassert();
       if (res.reasserted) this.out.appendLine("re-asserted ad injection (settings.json had drifted)");
@@ -655,18 +786,22 @@ export class CodecashService {
 
   showStatus(): void {
     const usd = (this.todayMicros / MICROS_PER_USD).toFixed(2);
-    const where = this.running
-      ? `running — ${describeState(this.controller?.getState())}`
-      : this.auth.hasToken()
-        ? "stopped"
-        : "not signed in";
+    const where = this.deferredToDaemon
+      ? "standing by — the codecash command-line app is serving on this machine"
+      : this.running
+        ? `running — ${describeState(this.controller?.getState())}`
+        : this.auth.hasToken()
+          ? "stopped"
+          : "not signed in";
     void vscode.window.showInformationMessage(
       `codecash — $${usd} today · ${where}. See full earnings on your dashboard.`,
     );
   }
 
   private async refetch(): Promise<void> {
-    if (!this.controller) return;
+    // Skip while deferred to the CLI daemon (T22): the daemon is serving — a fetch here would credit
+    // a second impression for the same device. A fetch scheduled just before we deferred no-ops here.
+    if (!this.controller || this.deferredToDaemon) return;
     await this.maybeRotateToken();
     const state = await this.controller.fetchAndRender();
     // Track whether the session is currently usable so the palette/widget surface re-auth exactly
@@ -757,7 +892,15 @@ export class CodecashService {
   private renderWidget(): void {
     this.syncContext();
     const usd = (this.todayMicros / MICROS_PER_USD).toFixed(2);
-    if (this.running && this.authRequired) {
+    if (this.running && this.deferredToDaemon) {
+      // Deferred to the CLI daemon (T22): it's earning on this machine, not us — don't show an
+      // extension earnings figure that would double-count or look stalled. Status is still clickable.
+      this.widget.text = "$(rss) codecash — CLI active";
+      this.widget.command = "codecash.status";
+      this.widget.tooltip =
+        "codecash: the command-line app is serving on this machine. The extension is standing by and will take over if you stop it.";
+      this.widget.backgroundColor = undefined;
+    } else if (this.running && this.authRequired) {
       // Serving but stalled on auth: don't claim we're earning — make re-link the obvious next step
       // (the auth-required toast is transient; this is the persistent surface).
       this.widget.text = "$(rss) codecash — sign-in needed";

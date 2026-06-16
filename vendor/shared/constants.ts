@@ -107,14 +107,18 @@ export const ROTATION_ERROR_RETRY_MS = 15 * 1000;
  * Multi-instance crediting (parallel Claude Code sessions). A developer running N sessions side by
  * side genuinely hosts N on-screen ad surfaces, so each can earn — but only while a real human is
  * present and bounded so it can't be farmed. The model:
- *   - Per-WORKSPACE ads: each session serves + caches its OWN creative (keyed by project dir) so the
- *     N surfaces show N DISTINCT advertisers, not one ad repeated (which would be unfair billing).
+ *   - Per-SESSION ads: each session serves + caches its OWN creative on its OWN confirmed status line
+ *     (keyed by session_id → `ads/s-<sessionKey>.json`, project_dir as the fallback) so the N lines show
+ *     N DISTINCT advertisers, not one ad repeated (which would be unfair billing).
+ *   - Spinner is shared: spinnerVerbs is ONE machine-wide setting mirrored into every session's spinner,
+ *     so it is NEVER multiplied into extra impressions — the confirmed per-session status line is the
+ *     billed unit (don't add per-session spinner crediting without a real per-session visibility signal).
  *   - Presence gate: an unfocused session only accrues while SOME codecash window was focused within
  *     PRESENCE_HEARTBEAT_TTL_MS (a real dev is at the machine), shared via a heartbeat file.
  *   - Concurrency cap: at most MAX_CONCURRENT_INSTANCES sessions accrue at once.
  *   - The per-device $20/hr · $200/day earn caps remain the hard governor on top of all this.
- * This is an opportunity-to-see model (like out-of-home): the advertiser pays for genuine on-screen
- * presence in an active dev session, not guaranteed sole focus.
+ * The rule is CONFIRMED on-screen visibility, NOT mere opportunity-to-see: one impression = one ad line
+ * confirmed on screen for >=5s of continuous, human-attended use — never assumed, never over-counted.
  */
 export const MAX_CONCURRENT_INSTANCES = 10;
 /** A session counts as "developer present" if a codecash window was focused within this window. */
@@ -123,6 +127,14 @@ export const PRESENCE_HEARTBEAT_TTL_MS = 8 * 1000;
 export const PRESENCE_STALE_MS = 30 * 1000;
 /** Subdirectory under CODECASH_DIR holding per-workspace ad caches (`ads/<workspaceKey>.json`). */
 export const CODECASH_ADS_SUBDIR = "ads";
+/**
+ * Filename prefix for per-SESSION ad caches (`ads/s-<sessionKey>.json`) — the confirmed per-session
+ * status-line surface the CLI daemon writes so two terminals in the SAME repo each render+credit their
+ * OWN creative (the visibility rule). Distinct from the per-workspace `<workspaceKey>.json` files so a
+ * session key and a workspace key can never collide in the same `ads/` dir. Mirrored as a literal in
+ * the zero-dep render script (adapters/claude-cli/render.ts).
+ */
+export const CODECASH_SESSION_CACHE_PREFIX = "s-";
 
 /**
  * Per-device ad diversity / frequency cap: the auction won't re-serve a creative shown to the SAME

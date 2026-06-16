@@ -62,7 +62,7 @@ export function developerPresent(state: PresenceState, now: number): boolean {
  * Whether THIS instance should accrue view time now:
  *   - focused window → yes (the dev is looking here);
  *   - else: a developer is present AND this instance is within the concurrency cap → yes
- *     (a parallel session on a present dev's screen — opportunity-to-see);
+ *     (a parallel session on a present dev's screen — presence-confirmed, not assumed);
  *   - else no.
  * The cap admits the lowest-id `cap` live instances — a deterministic subset every window agrees on.
  */
