@@ -37,7 +37,10 @@ export interface ReassertOptions {
 
 export type ReassertResult =
   | { reasserted: true }
-  | { reasserted: false; reason: "in_sync" | "no_settings" | "unparseable" | "install_failed" };
+  | {
+      reasserted: false;
+      reason: "in_sync" | "no_settings" | "unparseable" | "install_failed" | "render_missing";
+    };
 
 export function reassertInjection(paths: CodecashPaths, opts: ReassertOptions): ReassertResult {
   let raw: string;
@@ -56,6 +59,13 @@ export function reassertInjection(paths: CodecashPaths, opts: ReassertOptions): 
     // Unparseable JSON: refuse to touch it (installClaudeCliAdapter would refuse too).
     return { reasserted: false, reason: "unparseable" };
   }
+
+  // Stop reasserting once OUR OWN render script is gone (R1 hardening). A removed/updated-away install
+  // (e.g. the VS Code extension uninstalled, or an nvm/global path that no longer resolves) must NEVER
+  // rewrite the statusLine to point Claude Code at a path that no longer exists — that bricks the status
+  // line (`MODULE_NOT_FOUND` → blank render) and, for a stale process still firing this on a watcher,
+  // lets it clobber a healthy install. If we can't render, we have nothing to assert: bail without writing.
+  if (!existsSync(opts.renderScriptPath)) return { reasserted: false, reason: "render_missing" };
 
   // In sync only when the live command is byte-for-byte the one we'd write now — so a stale path after
   // an update (or a variant/marker change) counts as drift and gets rewritten, while our own identical

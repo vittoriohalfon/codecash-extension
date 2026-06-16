@@ -4,6 +4,15 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.1.7] — 2026-06-16
+
+### Fixed
+- **Never leaves your Claude Code status line pointing at a removed install.** If the extension was
+  uninstalled or updated while a window was still open, the old in-memory copy could keep rewriting
+  `~/.claude/settings.json` to its own (now-deleted) render script — blanking the status-line ad (and
+  its clickable link). The self-healing reassert now stops as soon as its own render script is gone,
+  so a stale copy can't fight a healthy install (CLI or extension) for the status line.
+
 ## [0.1.6] — 2026-06-16
 
 ### Changed
