@@ -15,6 +15,7 @@ pnpm-lock.yaml
 .gitignore
 .vscodeignore
 .github/**
+.claude/**
 CLAUDE.md
 # Ship only the built bundles from dist/, never their source maps. vsce force-includes any
 # file matched by a negation, so we un-ignore the bundles by extension — NOT `!dist/**`,
