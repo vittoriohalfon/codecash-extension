@@ -4,6 +4,13 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.1.8] — 2026-06-16
+
+### Changed
+- **Developer revenue share raised to 70%** (from 50%). You now keep **70%** of the revenue from
+  every ad you show. The split is applied server-side, so it takes effect on your next earned
+  impression — nothing to update.
+
 ## [0.1.7] — 2026-06-16
 
 ### Fixed
