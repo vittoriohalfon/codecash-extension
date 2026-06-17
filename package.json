@@ -2,7 +2,7 @@
   "name": "codecash",
   "displayName": "codecash — get paid to vibe code",
   "description": "Show one tasteful sponsored ad in your AI coding agent's wait states and earn a revenue share.",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": false,
   "type": "module",
   "publisher": "codecash",

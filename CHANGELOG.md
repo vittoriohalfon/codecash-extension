@@ -4,6 +4,15 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.1.10] — 2026-06-17
+
+### Fixed
+- The "thinking" spinner ad could show a **different advertiser** than the clickable status-line ad
+  beneath it when you ran several Claude Code sessions or VS Code windows at once. The spinner is one
+  machine-wide setting while each window earns on its own status line, so they could drift apart. The
+  spinner now shows an ad only when every active window agrees on one; the moment they differ it
+  reverts to your own spinner — so the two surfaces can never contradict each other.
+
 ## [0.1.9] — 2026-06-17
 
 ### Changed
