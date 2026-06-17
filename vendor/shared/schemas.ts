@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TargetingPredicateSchema } from "./targeting.js";
 
 /**
  * The credit lifecycle (CLAUDE.md): impression_rendered → impression_viewable →
@@ -240,6 +241,12 @@ export const AdvertiserBidSchema = z.object({
   bidUsd: z.number().positive().min(1, "Minimum bid is $1.00 per block").max(10_000),
   blocks: z.number().int().min(1).max(1000),
   showOnLeaderboard: z.boolean().optional(),
+  /**
+   * Optional stack-targeting predicate (docs/targeting-plan.md). `include` is a SOFT relevance boost,
+   * `exclude` a HARD filter; an absent/empty predicate = untargeted (matches everyone at the baseline).
+   * Validated against the closed taxonomy here; persisted to creatives.targeting on the draft creative.
+   */
+  targeting: TargetingPredicateSchema.optional(),
 });
 export type AdvertiserBid = z.infer<typeof AdvertiserBidSchema>;
 
@@ -261,5 +268,7 @@ export const AdminManualAdSchema = z.object({
     .regex(/^data:image\/(png|jpeg|webp);base64,/, "Icon must be a PNG, JPEG, or WebP")
     .optional(),
   blocks: z.number().int().min(1).max(100_000),
+  /** Optional stack-targeting predicate (docs/targeting-plan.md), same shape as the public bid form. */
+  targeting: TargetingPredicateSchema.optional(),
 });
 export type AdminManualAd = z.infer<typeof AdminManualAdSchema>;

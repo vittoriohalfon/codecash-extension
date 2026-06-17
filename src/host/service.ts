@@ -31,6 +31,7 @@ import {
   liveLabels,
   readSpinnerRegistry,
   writeSpinnerRegistry,
+  deriveDeviceTags,
 } from "@codecash/client-core";
 import {
   daemonLiveness,
@@ -528,6 +529,32 @@ export class CodecashService {
         ? "codecash enabled. The codecash command-line app is serving on this machine — the extension will take over automatically if you stop it."
         : `codecash enabled on ${surf.label}. Your settings were backed up.`,
     );
+    void this.maybeNudgeRelevantAds(); // discoverability nudge for the relevant-ads opt-in (fire-and-forget)
+  }
+
+  /**
+   * One-time discoverability nudge for relevant ads (docs/targeting-plan.md Layer 6). Shown at most
+   * once per install, and only while the opt-in is still off — "Enable" flips `codecash.relevantAds`
+   * (never silently; the dev clicks). Per-machine confirmation by design: this machine confirms before
+   * any stack tags are sent, and we only ever send coarse, allowlisted tags — never code.
+   */
+  private async maybeNudgeRelevantAds(): Promise<void> {
+    const KEY = "codecash.relevantAdsNudgeShown";
+    if (this.memento.get<boolean>(KEY)) return;
+    const mode = vscode.workspace.getConfiguration("codecash").get<string>("relevantAds") ?? "off";
+    if (mode === "relevant") return;
+    await this.memento.update(KEY, true); // mark first, so a dismissed nudge never re-pesters
+    const choice = await vscode.window.showInformationMessage(
+      "codecash: earn more with relevant ads — match ads to your stack. Sends only coarse tags (e.g. fw:next), never your code.",
+      "Enable",
+      "Not now",
+    );
+    if (choice === "Enable") {
+      await vscode.workspace
+        .getConfiguration("codecash")
+        .update("relevantAds", "relevant", vscode.ConfigurationTarget.Global);
+      void vscode.window.showInformationMessage("codecash: relevant ads on — you'll earn the premium rate.");
+    }
   }
 
   /**
@@ -559,6 +586,16 @@ export class CodecashService {
       },
       now: () => Date.now(),
       isVisible: () => this.lastVisible,
+      // Opt-in relevant ads (Layer 6): send coarse stack tags ONLY when the user set
+      // `codecash.relevantAds` = "relevant" (default "off"). Read fresh each fetch so a settings change
+      // applies without a reload; deriveDeviceTags is bounded, cached, and emits only allowlisted tags.
+      getTags: () => {
+        if (vscode.workspace.getConfiguration("codecash").get<string>("relevantAds") !== "relevant") {
+          return [];
+        }
+        const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+        return deriveDeviceTags(dir, { adapter: "claude-cli" });
+      },
       onTelemetry: (type, ctx) => this.reporter?.report(type, ctx),
       onEarned: (credited, earnings) => this.applyEarnings(credited, earnings),
       onState: (s) => this.onState(s),

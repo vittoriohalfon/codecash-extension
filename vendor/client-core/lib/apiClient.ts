@@ -6,6 +6,7 @@ import {
   type TelemetryReport,
   type ClientEventBatch,
   type EarningsSnapshot,
+  type TargetingTag,
 } from "@codecash/shared";
 
 /**
@@ -135,12 +136,24 @@ export class ApiClient {
     }
   }
 
-  /** GET /api/ads/next — device-authed. 204 → idle (killed/no-inventory). */
-  async fetchNextAd(): Promise<NextAd> {
-    const res = await this.fetchImpl(`${this.base()}/api/ads/next`, {
-      method: "GET",
-      headers: { ...this.authHeaders() },
-    });
+  /**
+   * /api/ads/next — device-authed. 204 → idle (killed/no-inventory).
+   *
+   * With NO `tags` (the default) it GETs — the long-lived, back-compat contract every published
+   * client uses. With opt-in coarse stack tags it POSTs `{ tags }` so the server can weight the
+   * auction toward relevant ads (docs/targeting-plan.md). The caller only passes tags when the user
+   * has consented (Layer 6); this method just carries them. Tags are request-scoped, never stored.
+   */
+  async fetchNextAd(tags?: readonly TargetingTag[]): Promise<NextAd> {
+    const useTags = Array.isArray(tags) && tags.length > 0;
+    const init: RequestInit = useTags
+      ? {
+          method: "POST",
+          headers: { "content-type": "application/json", ...this.authHeaders() },
+          body: JSON.stringify({ tags }),
+        }
+      : { method: "GET", headers: { ...this.authHeaders() } };
+    const res = await this.fetchImpl(`${this.base()}/api/ads/next`, init);
     if (res.status === 204) {
       return { kind: "none", reason: res.headers.get("x-codecash-reason") ?? "no-content" };
     }

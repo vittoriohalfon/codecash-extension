@@ -150,6 +150,19 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Base URL of the codecash server this extension fetches ads from and reports events to. Leave blank to use the build default (`http://localhost:3000` for local builds). Changes take effect on the next ad fetch."
+        },
+        "codecash.relevantAds": {
+          "type": "string",
+          "enum": [
+            "off",
+            "relevant"
+          ],
+          "enumDescriptions": [
+            "Generic ads. codecash sends no information about your project.",
+            "Ads matched to your stack — you earn the premium rate."
+          ],
+          "default": "off",
+          "markdownDescription": "**Relevant ads — earn more.** When set to `relevant`, codecash derives ~a dozen coarse tags (e.g. `fw:next`, `lang:typescript`) from your workspace's manifest files (package.json, go.mod, Dockerfile, …) and sends **only those tags** so advertisers can match your stack. It **never** sends your code, file or repo names, paths, or prompts. Off by default; change takes effect on the next ad fetch."
         }
       }
     }

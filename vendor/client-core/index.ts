@@ -33,6 +33,7 @@ export * from "./lib/settings.js";
 export * from "./lib/adCache.js";
 export * from "./lib/osc8.js";
 export * from "./lib/workspaceKey.js";
+export * from "./lib/context.js";
 export * from "./lib/preflight.js";
 export * from "./lib/reassert.js";
 export * from "./lib/adLabel.js";

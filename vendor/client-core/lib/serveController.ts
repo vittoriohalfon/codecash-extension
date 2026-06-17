@@ -1,4 +1,4 @@
-import type { AdServeResponse, EventType, EarningsSnapshot } from "@codecash/shared";
+import type { AdServeResponse, EventType, EarningsSnapshot, TargetingTag } from "@codecash/shared";
 import { ApiClient, UnauthorizedError, type NextAd } from "./apiClient.js";
 import { ViewTracker, type ViewContext } from "./viewTracker.js";
 import { readServeClaims } from "./tokenClaims.js";
@@ -52,6 +52,14 @@ export interface ControllerDeps {
   onState?: (state: ServeState) => void;
   /** Refresh succeeded — persist the rotated token (SecretStorage) so getToken() returns it. */
   onTokenRefreshed?: (token: string) => Promise<void> | void;
+  /**
+   * Opt-in "relevant ads" seam (docs/targeting-plan.md Layer 3). When provided, its coarse stack tags
+   * are sent with each fetch so the server can weight the auction toward relevant ads. OMITTED by
+   * default → fetches carry no tags (identical to the untargeted behavior). The host wires this ONLY
+   * once the user has consented (Layer 6), typically `() => deriveDeviceTags(workspaceRoot, {adapter})`.
+   * Best-effort: a throw/reject here is swallowed and the fetch proceeds untargeted.
+   */
+  getTags?: () => readonly TargetingTag[] | Promise<readonly TargetingTag[]>;
   log?: (level: "info" | "warn" | "error", msg: string, extra?: unknown) => void;
 }
 
@@ -97,9 +105,19 @@ export class ServeController {
    * and seeds visibility from the host so accrual starts immediately if the window is focused.
    */
   async fetchAndRender(): Promise<ServeState> {
+    // Resolve opt-in targeting tags (best-effort: a failure must never disturb serving → untargeted).
+    let tags: readonly TargetingTag[] | undefined;
+    if (this.deps.getTags) {
+      try {
+        tags = await this.deps.getTags();
+      } catch {
+        tags = undefined;
+      }
+    }
+
     let next: NextAd;
     try {
-      next = await this.withAuthRetry(() => this.deps.api.fetchNextAd());
+      next = await this.withAuthRetry(() => this.deps.api.fetchNextAd(tags));
     } catch (err) {
       if (err instanceof UnauthorizedError) return this.setState("auth-required");
       this.deps.log?.("error", "fetchNextAd failed", err);
