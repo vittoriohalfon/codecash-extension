@@ -4,6 +4,12 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.1.9] — 2026-06-17
+
+### Changed
+- Refreshed the tagline to **"get paid to vibe code"** across the extension name, the onboarding
+  walkthrough, and the status-bar tooltip. No behavior change — same one-ad-in-your-wait-states loop.
+
 ## [0.1.8] — 2026-06-16
 
 ### Changed
