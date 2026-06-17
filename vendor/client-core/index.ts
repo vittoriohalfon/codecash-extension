@@ -25,6 +25,7 @@ export * from "./lib/signalCache.js";
 export * from "./lib/idempotency.js";
 export * from "./lib/tokenClaims.js";
 export * from "./lib/clientReporter.js";
+export * from "./lib/updateNotice.js";
 
 // ── claude-cli terminal adapter + its support ──────────────────────────────────────────────────
 export * from "./lib/paths.js";

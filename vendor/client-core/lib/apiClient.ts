@@ -41,6 +41,16 @@ export type NextAd =
   | { kind: "ad"; serve: AdServeResponse }
   | { kind: "none"; reason: string };
 
+/** Parsed GET /api/health — reachability + the versions that feed the passive update notice. */
+export interface HealthInfo {
+  /** Server reachable and 2xx. */
+  ok: boolean;
+  /** Latest published CLI version the server advertises, or null when it has no opinion. */
+  latestCliVersion: string | null;
+  /** Minimum supported CLI version, or null. Below it the notice escalates (see `updateNoticeFor`). */
+  minCliVersion: string | null;
+}
+
 export interface CreditResult {
   deduped: boolean;
   creditedMicros: number;
@@ -100,6 +110,28 @@ export class ApiClient {
       return res.ok;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * GET /api/health, parsed — reachability PLUS the server-advertised CLI versions that drive the
+   * client's passive update notice. Same allowlisted endpoint as `ping()`; this just reads the body.
+   * It NEVER fetches or runs code (R4) — `latestCliVersion`/`minCliVersion` are plain strings the
+   * caller compares against its baked-in VERSION. Never throws: an unreachable/old server yields
+   * `{ ok: false, latestCliVersion: null, minCliVersion: null }`.
+   */
+  async fetchHealth(): Promise<HealthInfo> {
+    try {
+      const res = await this.fetchImpl(`${this.base()}/api/health`, { method: "GET" });
+      if (!res.ok) return { ok: false, latestCliVersion: null, minCliVersion: null };
+      const j = (await res.json()) as { latestCliVersion?: unknown; minCliVersion?: unknown };
+      return {
+        ok: true,
+        latestCliVersion: typeof j.latestCliVersion === "string" ? j.latestCliVersion : null,
+        minCliVersion: typeof j.minCliVersion === "string" ? j.minCliVersion : null,
+      };
+    } catch {
+      return { ok: false, latestCliVersion: null, minCliVersion: null };
     }
   }
 
