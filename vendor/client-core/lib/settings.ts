@@ -214,3 +214,48 @@ export function uninstallClaudeCliAdapter(paths: CodecashPaths): UninstallResult
   writeJsonAtomic(paths.claudeSettings, settings);
   return { ok: true, restored: captured != null };
 }
+
+export type RestoreSpinnerResult =
+  | { ok: true; restored: boolean }
+  | { ok: false; reason: "no_settings" | "settings_unparseable" | "not_installed" };
+
+/**
+ * Take the ad OFF the global spinner verb — restore the user's captured original `spinnerVerbs` (or
+ * remove ours if they had none) — WITHOUT touching our `statusLine`. The CLI daemon calls this when
+ * two live sessions are showing DIFFERENT ads: `spinnerVerbs` is one machine-global setting but the
+ * status line is per-session, so any single brand on the spinner would contradict the status line
+ * under every terminal but one (the "Base44 spinner over a justskim status line" bug). The spinner is
+ * a non-billable bonus surface, so dropping it costs no revenue — only removes the contradiction.
+ *
+ * Refuses to write (returns ok:false) when settings are missing/unparseable, or when we never
+ * installed (no capture) — in which case we never wrote a spinner ad and must not delete a
+ * `spinnerVerbs` the user set themselves. Atomic write; never throws on the happy path.
+ */
+export function restoreSpinnerVerb(paths: CodecashPaths): RestoreSpinnerResult {
+  let settings: Record<string, unknown>;
+  try {
+    const existing = readJson<Record<string, unknown>>(paths.claudeSettings);
+    if (existing === undefined) return { ok: false, reason: "no_settings" };
+    settings = existing;
+  } catch {
+    return { ok: false, reason: "settings_unparseable" };
+  }
+
+  // Only act if WE installed (and thus captured the user's original spinnerVerbs).
+  if (!existsSync(paths.config)) return { ok: false, reason: "not_installed" };
+  let captured: CapturedConfig | undefined;
+  try {
+    captured = readJson<CapturedConfig>(paths.config);
+  } catch {
+    return { ok: false, reason: "not_installed" }; // corrupt capture → don't risk the user's spinner
+  }
+
+  if (captured?.capturedSpinnerVerbs != null) {
+    settings.spinnerVerbs = captured.capturedSpinnerVerbs;
+  } else {
+    delete settings.spinnerVerbs;
+  }
+
+  writeJsonAtomic(paths.claudeSettings, settings);
+  return { ok: true, restored: captured?.capturedSpinnerVerbs != null };
+}

@@ -4,6 +4,7 @@ import { codecashPaths, type CodecashPaths } from "../../lib/paths.js";
 import {
   installClaudeCliAdapter,
   uninstallClaudeCliAdapter,
+  restoreSpinnerVerb,
   type StatusLineVariant,
 } from "../../lib/settings.js";
 import {
@@ -157,6 +158,17 @@ export class ClaudeCliAdapter implements InjectionAdapter {
       nodePath: this.nodePath,
       adText: label,
     });
+  }
+
+  /**
+   * Take the ad OFF the global spinner verb (restore the user's captured original), leaving our
+   * per-session status line installed. The CLI daemon calls this when live sessions disagree on which
+   * ad to show: spinnerVerbs is machine-global, so a single brand would contradict the per-session
+   * status line under every terminal but one — clearing it is the only way the spinner can't show a
+   * different advertiser than the line beneath it. No-op if we don't own settings (see restoreSpinnerVerb).
+   */
+  clearSpinnerVerb(): void {
+    restoreSpinnerVerb(this.paths);
   }
 
   async pushAd(serve: AdServeResponse): Promise<void> {

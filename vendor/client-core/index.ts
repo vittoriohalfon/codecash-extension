@@ -16,6 +16,8 @@ export * from "./lib/apiClient.js";
 export * from "./lib/serveController.js";
 export * from "./lib/viewTracker.js";
 export * from "./lib/presence.js";
+export * from "./lib/spinnerCoalesce.js";
+export * from "./lib/spinnerRegistry.js";
 export * from "./lib/telemetry.js";
 export * from "./lib/rotation.js";
 export * from "./lib/auth.js";

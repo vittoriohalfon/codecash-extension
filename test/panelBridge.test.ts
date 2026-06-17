@@ -118,6 +118,33 @@ describe("PanelSpinnerBridge", () => {
     expect(config.readGlobal()).toEqual(original);
   });
 
+  it("clear() takes the ad off the panel but KEEPS the capture so update() can re-show it", async () => {
+    const original: SpinnerVerbsValue = { mode: "replace", verbs: ["user's own"] };
+    config = new FakeConfigStore(original);
+    const bridge = new PanelSpinnerBridge(config, capture);
+    await bridge.enable("ad one");
+    expect(config.readGlobal()).toEqual(adSpinnerVerbs("ad one"));
+
+    // Windows disagree → clear: restore the user's original, but the capture must survive.
+    await bridge.clear();
+    expect(config.readGlobal()).toEqual(original);
+    expect(capture.read()).toEqual({ original }); // capture NOT forgotten (unlike disable)
+
+    // Windows agree again → update re-shows the ad even though the text didn't change since enable.
+    await bridge.update("ad one");
+    expect(config.readGlobal()).toEqual(adSpinnerVerbs("ad one"));
+  });
+
+  it("clear() is a no-op when never enabled (leaves the user's setting untouched)", async () => {
+    const original: SpinnerVerbsValue = { mode: "replace", verbs: ["theirs"] };
+    config = new FakeConfigStore(original);
+    const bridge = new PanelSpinnerBridge(config, capture);
+
+    await bridge.clear();
+    expect(config.writes).toEqual([]);
+    expect(config.readGlobal()).toEqual(original);
+  });
+
   it("disable() is a no-op when never enabled (leaves the user's setting untouched)", async () => {
     const original: SpinnerVerbsValue = { mode: "replace", verbs: ["theirs"] };
     config = new FakeConfigStore(original);

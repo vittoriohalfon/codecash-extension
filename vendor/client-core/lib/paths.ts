@@ -21,6 +21,8 @@ export function codecashPaths(home: string = homedir()) {
     adsDir: join(codecashDir, CODECASH_ADS_SUBDIR),
     /** cross-instance presence heartbeat (multi-instance concurrent crediting). */
     presence: join(codecashDir, "presence.json"),
+    /** cross-window registry of each window's current ad → coalesce the one global spinner verb. */
+    spinnerRegistry: join(codecashDir, "spinner.json"),
     /** where we persist a captured pre-existing statusLine so the render script can chain it. */
     config: join(codecashDir, "config.json"),
     /** backup of the user's original settings.json for clean restore. */

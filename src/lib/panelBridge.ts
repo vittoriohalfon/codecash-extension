@@ -118,6 +118,20 @@ export class PanelSpinnerBridge {
     this.lastWritten = null;
   }
 
+  /**
+   * Take the ad OFF the panel spinner — restore the user's captured original (or remove our key) —
+   * WITHOUT forgetting the capture, so a later {@link update} re-shows an ad without re-capturing. The
+   * host calls this when sibling windows disagree on the ad: `claudeCode.spinnerVerbs` is one global VS
+   * Code setting, so a single brand would contradict another window's terminal status line. Distinct
+   * from {@link disable}, which is the teardown that also forgets the capture. No-op if never enabled.
+   */
+  async clear(): Promise<void> {
+    const cap = this.capture.read();
+    if (cap === undefined) return; // never enabled → nothing of ours to clear
+    await this.config.writeGlobal(cap.original ?? undefined);
+    this.lastWritten = null; // force the next update() to write the ad again
+  }
+
   private async write(adText: string): Promise<void> {
     const value = adSpinnerVerbs(adText);
     const key = JSON.stringify(value.verbs);

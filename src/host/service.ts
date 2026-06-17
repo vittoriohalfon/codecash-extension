@@ -25,6 +25,12 @@ import {
   shouldAccrue,
   readPresenceFile,
   writePresenceFile,
+  resolveSpinnerLabel,
+  recordLabel,
+  dropLabel,
+  liveLabels,
+  readSpinnerRegistry,
+  writeSpinnerRegistry,
 } from "@codecash/client-core";
 import {
   daemonLiveness,
@@ -120,6 +126,15 @@ export class CodecashService {
   private readonly instanceId = randomUUID();
   /** Last computed accrual visibility (focus OR present-within-cap); seeds the view tracker. */
   private lastVisible = false;
+  /** The ad THIS window is currently showing on its status line (`<brand> · <ad>`), or null if none yet. */
+  private currentLabel: string | null = null;
+  /**
+   * The spinner verb we last reconciled into the machine-global settings, deduped so we touch
+   * settings.json / claudeCode.spinnerVerbs only on change (mirrors the daemon's globalLabel):
+   * a label = that ad is branded; null = cleared to the user's original (windows disagree); undefined
+   * = not reconciled yet this run (so the first coalesce always writes). See {@link coalesceSpinner}.
+   */
+  private lastSpinnerWritten: string | null | undefined = undefined;
   /**
    * Last auth/serving state mirrored into the VS Code context keys that gate the command palette
    * (see contributes.menus.commandPalette). Two auth keys, deliberately distinct:
@@ -531,18 +546,15 @@ export class CodecashService {
     );
     this.controller = new ServeController({
       api: this.api,
-      // Fan each fetched ad out to both surfaces: the claude-cli adapter (terminal spinner + status
-      // line) and the claude-code panel bridge (the extension panel's spinner verb). The panel write
-      // is best-effort — a settings.json hiccup must never break the terminal surface or the loop.
+      // Write THIS window's per-workspace status line (the confirmed, billed surface) directly, but do
+      // NOT brand the machine-global spinner here. The terminal spinnerVerbs AND the panel's
+      // claudeCode.spinnerVerbs are single shared settings, so a sibling window on a different ad would
+      // be contradicted. coalesceSpinner() reconciles the spinner across all live windows instead.
       sink: {
         pushAd: async (serve) => {
-          await this.adapter.pushAd(serve);
-          try {
-            // Brand-prefixed (`<brand> · <ad>`) so the panel's "thinking" verb matches the terminal.
-            await this.panel.update(formatAdLabel(serve.creative.brandName, serve.creative.adText));
-          } catch (e) {
-            this.out.appendLine(`panel update failed (non-fatal): ${stringifyErr(e)}`);
-          }
+          this.adapter.cacheAd(serve);
+          this.currentLabel = formatAdLabel(serve.creative.brandName, serve.creative.adText);
+          this.coalesceSpinner(); // reconcile now so a fresh ad shows without waiting for the next tick
         },
       },
       now: () => Date.now(),
@@ -568,6 +580,9 @@ export class CodecashService {
         this.recomputeVisibility();
         this.controller?.tick();
         this.reporter?.flush();
+        // Heartbeat this window into the shared spinner registry + reconcile the one global spinner
+        // across all live windows (brand only when they agree, else clear). Cheap; deduped internally.
+        this.coalesceSpinner();
       } catch (e) {
         this.clientReporter.reportError(e, "tick");
       }
@@ -643,6 +658,13 @@ export class CodecashService {
     if (this.fetchTimer) clearTimeout(this.fetchTimer);
     this.fetchTimer = undefined;
     this.controller?.setVisible(false);
+    // The daemon owns the spinner now; forget our reconciled state so resume re-writes it, and leave the
+    // spinner cohort (our entry would otherwise sit stale until reaped). coalesceSpinner no-ops while deferred.
+    this.lastSpinnerWritten = undefined;
+    writeSpinnerRegistry(
+      this.paths.spinnerRegistry,
+      dropLabel(readSpinnerRegistry(this.paths.spinnerRegistry), this.instanceId, Date.now()),
+    );
     this.out.appendLine("standing down — the codecash CLI daemon is serving on this machine");
     this.renderWidget();
   }
@@ -696,6 +718,14 @@ export class CodecashService {
       this.paths.presence,
       dropInstance(readPresenceFile(this.paths.presence), this.instanceId, Date.now()),
     );
+    // Leave the spinner cohort too, so a sibling window re-brands the global spinner without us holding
+    // it cleared. Our own surface is already restored above (adapter.disable / panel.disable).
+    writeSpinnerRegistry(
+      this.paths.spinnerRegistry,
+      dropLabel(readSpinnerRegistry(this.paths.spinnerRegistry), this.instanceId, Date.now()),
+    );
+    this.currentLabel = null;
+    this.lastSpinnerWritten = undefined;
     await vscode.workspace
       .getConfiguration("codecash")
       .update("enabled", false, vscode.ConfigurationTarget.Global);
@@ -716,6 +746,50 @@ export class CodecashService {
     writePresenceFile(this.paths.presence, next);
     this.lastVisible = shouldAccrue(next, this.instanceId, focused, now);
     this.controller?.setVisible(this.lastVisible);
+  }
+
+  /**
+   * Reconcile the ONE machine-global spinner verb across every live codecash window (the same guard the
+   * CLI daemon applies to its in-process sessions). Each window writes its OWN per-workspace status
+   * line, but the terminal `spinnerVerbs` and the panel's `claudeCode.spinnerVerbs` are single global
+   * settings — so we may brand them only when every live window agrees on one ad; the moment two
+   * windows show DIFFERENT advertisers we clear the spinner, because any one brand would contradict the
+   * status line under every window but one (the reported bug). Coordinated through the shared on-disk
+   * spinner registry (one heartbeat-with-reap file, like presence.json). Deduped via lastSpinnerWritten
+   * so we touch settings only when the resolved state changes. Best-effort: never throws into the tick.
+   */
+  private coalesceSpinner(): void {
+    // While stopped, or deferred to a live CLI daemon (it owns + re-writes the spinner), do nothing.
+    if (!this.running || this.deferredToDaemon) return;
+    const now = Date.now();
+    // Heartbeat THIS window's current ad, then read what every live window is showing.
+    const reg = recordLabel(
+      readSpinnerRegistry(this.paths.spinnerRegistry),
+      this.instanceId,
+      this.currentLabel,
+      now,
+    );
+    writeSpinnerRegistry(this.paths.spinnerRegistry, reg);
+    const desired = resolveSpinnerLabel(liveLabels(reg, now));
+    if (desired === this.lastSpinnerWritten) return;
+    try {
+      if (desired !== null) {
+        this.adapter.setSpinnerVerb(desired);
+        void this.panel
+          .update(desired)
+          .catch((e) => this.out.appendLine(`panel spinner update failed (non-fatal): ${stringifyErr(e)}`));
+      } else {
+        // Windows disagree (or none have an ad): take the ad off both global spinner surfaces.
+        this.adapter.clearSpinnerVerb();
+        void this.panel
+          .clear()
+          .catch((e) => this.out.appendLine(`panel spinner clear failed (non-fatal): ${stringifyErr(e)}`));
+      }
+      this.lastSpinnerWritten = desired;
+    } catch (e) {
+      this.clientReporter.reportError(e, "coalesceSpinner");
+      this.out.appendLine(`spinner coalesce failed (non-fatal): ${stringifyErr(e)}`);
+    }
   }
 
   /**
@@ -971,6 +1045,17 @@ export class CodecashService {
 
   dispose(): void {
     this.clearTimers();
+    // Window closing: leave the spinner cohort so siblings re-brand promptly (best-effort, never throws).
+    if (this.running && !this.deferredToDaemon) {
+      try {
+        writeSpinnerRegistry(
+          this.paths.spinnerRegistry,
+          dropLabel(readSpinnerRegistry(this.paths.spinnerRegistry), this.instanceId, Date.now()),
+        );
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 }
 
