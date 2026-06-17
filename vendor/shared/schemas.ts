@@ -242,3 +242,24 @@ export const AdvertiserBidSchema = z.object({
   showOnLeaderboard: z.boolean().optional(),
 });
 export type AdvertiserBid = z.infer<typeof AdvertiserBidSchema>;
+
+/**
+ * Body of the admin "add an ad manually" action (the superadmin panel, ADMIN_EMAILS-gated). Lets an
+ * operator place an ad directly — typically their OWN affiliate links — WITHOUT the public Stripe bid
+ * flow: the block is granted, not Stripe-funded. There's no `email`/`bidUsd` field because the bid is
+ * fixed server-side to an implied $1.00/block, so devs are credited exactly as for a real $1 bid; the
+ * advertiser side is settled off-platform. Field rules mirror AdvertiserBidSchema (brandName required
+ * here — it's the per-brand advertiser name — and `blocks` allowed higher since there's no charge).
+ */
+export const AdminManualAdSchema = z.object({
+  brandName: z.string().trim().min(1, "Brand name is required").max(40),
+  headline: z.string().trim().min(3).max(60),
+  clickUrl: z.string().url().startsWith("https://", "Destination URL must be https://").max(2048),
+  iconDataUrl: z
+    .string()
+    .max(ICON_MAX_CHARS, "Icon must be ≤64KB")
+    .regex(/^data:image\/(png|jpeg|webp);base64,/, "Icon must be a PNG, JPEG, or WebP")
+    .optional(),
+  blocks: z.number().int().min(1).max(100_000),
+});
+export type AdminManualAd = z.infer<typeof AdminManualAdSchema>;

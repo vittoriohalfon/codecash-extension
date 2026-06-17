@@ -1,6 +1,6 @@
 {
   "name": "codecash",
-  "displayName": "codecash — get paid for waiting",
+  "displayName": "codecash — get paid to vibe code",
   "description": "Show one tasteful sponsored ad in your AI coding agent's wait states and earn a revenue share.",
   "version": "0.1.8",
   "private": false,
@@ -109,7 +109,7 @@
     "walkthroughs": [
       {
         "id": "codecashStart",
-        "title": "Get paid for waiting",
+        "title": "Get paid to vibe code",
         "description": "Connect codecash and earn a revenue share on the one ad shown in your AI agent's wait states.",
         "steps": [
           {

@@ -1,4 +1,4 @@
-# codecash — get paid for waiting
+# codecash — get paid to vibe code
 
 codecash shows **one** tasteful sponsored ad in the wait states of your AI coding agent — the
 Claude Code spinner verb and status line — and pays you a revenue share for it. No pop-ups, no
@@ -18,7 +18,7 @@ tracking of your code, no second ad anywhere.
    ```bash
    code --install-extension codecash.codecash      # or: cursor / windsurf --install-extension …
    ```
-   A **Get paid for waiting** walkthrough opens automatically once it's installed.
+   A **Get paid to vibe code** walkthrough opens automatically once it's installed.
 2. **Connect it** — click **codecash** in the status bar (bottom-right), or click **Connect & start
    earning** in the walkthrough. Your browser opens, you sign in, and the editor is linked and
    **turned on automatically** — no copy-paste, no command palette.

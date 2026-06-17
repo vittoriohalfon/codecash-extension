@@ -19,7 +19,6 @@
     "rootDir": ".",
     "types": ["node"],
     "noEmit": true,
-    "baseUrl": ".",
     "paths": {
       "@codecash/shared": ["./vendor/shared/index.ts"],
       "@codecash/client-core": ["./vendor/client-core/index.ts"],

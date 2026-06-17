@@ -7,7 +7,7 @@ import {
 
 /**
  * Single source of truth for marketplace economics. The landing page reads these for the
- * "get paid for waiting" math AND the API bills against them — so the numbers a dev sees
+ * "get paid to vibe code" math AND the API bills against them — so the numbers a dev sees
  * advertised can never drift from what actually credits the ledger.
  *
  * All money is integer MICRO-DOLLARS (µUSD, 1e-6 USD) — decision D1. A 5s impression is sub-cent

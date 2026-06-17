@@ -13,7 +13,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const widget = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   widget.text = "$(rss) codecash";
-  widget.tooltip = "codecash — get paid for waiting";
+  widget.tooltip = "codecash — get paid to vibe code";
   widget.command = "codecash.status";
   widget.show();
   context.subscriptions.push(widget);

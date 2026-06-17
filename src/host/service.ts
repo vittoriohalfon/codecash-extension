@@ -50,7 +50,7 @@ const DEFAULT_BASE_URL =
 const PENDING_STATE_KEY = "codecash.pendingConnectState";
 
 /** The placeholder ad shown the instant we enable, before the first real serve arrives. */
-const SEED_AD_TEXT = "codecash — get paid for waiting";
+const SEED_AD_TEXT = "codecash — get paid to vibe code";
 
 /**
  * How long a piggybacked earnings snapshot stays fresh enough to skip the cold-start /api/me/earnings
@@ -923,7 +923,7 @@ export class CodecashService {
       // Fresh user: a click should start the one-click connect flow, not show an empty status.
       this.widget.text = "$(rss) codecash";
       this.widget.command = "codecash.connect";
-      this.widget.tooltip = "codecash — click to connect and get paid for waiting.";
+      this.widget.tooltip = "codecash — click to connect and get paid to vibe code.";
       this.widget.backgroundColor = undefined;
     }
   }
