@@ -1031,10 +1031,13 @@ export class CodecashService {
       this.widget.tooltip = "codecash is connected but paused. Click to enable and start earning.";
       this.widget.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
     } else {
-      // Fresh user: a click should start the one-click connect flow, not show an empty status.
-      this.widget.text = "$(rss) codecash";
+      // Fresh user (installed, never connected): the wait-state spinner shows nothing from us yet —
+      // we don't touch ~/.claude/settings.json until they opt in — so this widget is the ONLY
+      // pre-connect surface. Make it an explicit "sign in to earn" CTA, not a silent icon an
+      // install-and-forget user scrolls past; a click starts the one-click connect flow.
+      this.widget.text = "$(rss) codecash — connect to earn";
       this.widget.command = "codecash.connect";
-      this.widget.tooltip = "codecash — click to connect and get paid to vibe code.";
+      this.widget.tooltip = "codecash — sign in to start earning while you wait. Click to connect.";
       this.widget.backgroundColor = undefined;
     }
   }

@@ -4,6 +4,16 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.2.0] — 2026-06-18
+
+### Fixed
+- **The extension could fail to activate on install — every command showed "command not found."** A
+  bundling defect shipped in 0.1.11 left an unresolved module reference in the packaged extension, so
+  it crashed the instant the editor loaded it and none of its commands (Connect, Enable, …) were
+  registered. Reinstalling 0.1.11 couldn't help because the package itself was broken; updating to
+  0.2.0 restores it. A build-time guardrail now smoke-loads the packaged bundle so a non-activating
+  build can never be published again.
+
 ## [0.1.11] — 2026-06-18
 
 ### Added
