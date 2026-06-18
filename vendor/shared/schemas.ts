@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { TargetingPredicateSchema } from "./targeting.js";
+import { TargetingPredicateSchema, isTargetedPredicate } from "./targeting.js";
+import { MIN_BID_USD, MIN_BID_USD_TARGETED } from "./constants.js";
 
 /**
  * The credit lifecycle (CLAUDE.md): impression_rendered → impression_viewable →
@@ -238,7 +239,7 @@ export const AdvertiserBidSchema = z.object({
     .max(ICON_MAX_CHARS, "Icon must be ≤64KB")
     .regex(/^data:image\/(png|jpeg|webp);base64,/, "Icon must be a PNG, JPEG, or WebP")
     .optional(),
-  bidUsd: z.number().positive().min(1, "Minimum bid is $1.00 per block").max(10_000),
+  bidUsd: z.number().positive().min(MIN_BID_USD, `Minimum bid is $${MIN_BID_USD}.00 per block`).max(10_000),
   blocks: z.number().int().min(1).max(1000),
   showOnLeaderboard: z.boolean().optional(),
   /**
@@ -247,6 +248,17 @@ export const AdvertiserBidSchema = z.object({
    * Validated against the closed taxonomy here; persisted to creatives.targeting on the draft creative.
    */
   targeting: TargetingPredicateSchema.optional(),
+}).superRefine((bid, ctx) => {
+  // Targeted campaigns carry a higher bid floor (MIN_BID_USD_TARGETED). Enforced here so the server
+  // rejects an under-floor targeted bid even if a client skipped the check; the error is pathed to
+  // `bidUsd` so the form can highlight the right field.
+  if (isTargetedPredicate(bid.targeting) && bid.bidUsd < MIN_BID_USD_TARGETED) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["bidUsd"],
+      message: `Targeted campaigns require a minimum bid of $${MIN_BID_USD_TARGETED}.00 per block`,
+    });
+  }
 });
 export type AdvertiserBid = z.infer<typeof AdvertiserBidSchema>;
 

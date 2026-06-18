@@ -17,6 +17,17 @@ export const DEFAULT_REV_SHARE_PCT = 70;
 export const CLICK_MULTIPLIER = 50;
 
 /**
+ * Advertiser bid floors, in USD per block (a block = IMPRESSIONS_PER_BLOCK impressions). The base
+ * floor applies to untargeted campaigns; a non-empty stack-targeting predicate raises the floor to
+ * MIN_BID_USD_TARGETED — targeting narrows the audience and earns a relevance premium in the auction
+ * (matches outrank untargeted ads at equal bid), so a higher minimum keeps targeted inventory fairly
+ * priced and discourages trivially-narrow low-bid campaigns. Enforced in AdvertiserBidSchema (server)
+ * and surfaced in the bid form (client) — the two read this one constant so they can't drift.
+ */
+export const MIN_BID_USD = 1;
+export const MIN_BID_USD_TARGETED = 5;
+
+/**
  * Money unit. The ledger stores integer MICRO-DOLLARS
  * (µUSD, 1e-6 USD) because a 5s impression is sub-cent (~$0.001 = 1000 µUSD) and integer cents
  * would round every credit to 0. Convert to Stripe cents only at payout time.

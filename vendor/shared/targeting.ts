@@ -189,6 +189,18 @@ export function validatePredicate(input: unknown): PredicateValidation {
   return { ok: false, errors: parsed.error.issues.map((i) => i.message) };
 }
 
+/**
+ * Is a predicate actually targeting anyone — i.e. does it carry at least one non-empty `include` OR
+ * `exclude` namespace? An empty/absent predicate (`{}`, `{ include: {} }`) is "untargeted, matches
+ * everyone." Used to gate the targeted bid floor (MIN_BID_USD_TARGETED) and the form's "you're
+ * targeting" UI. Treats any non-empty predicate (include-boost OR exclude-filter) as targeted.
+ */
+export function isTargetedPredicate(predicate: TargetingPredicate | null | undefined): boolean {
+  const hasTags = (m: Record<string, TargetingTag[]> | undefined): boolean =>
+    !!m && Object.values(m).some((tags) => (tags?.length ?? 0) > 0);
+  return hasTags(predicate?.include) || hasTags(predicate?.exclude);
+}
+
 /** Baseline match score for an untargeted (or non-matching) creative — servable, but loses to a real match. */
 export const MATCH_BASELINE = 0.5;
 
