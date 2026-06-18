@@ -4,6 +4,15 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.1.11] — 2026-06-18
+
+### Added
+- **Relevant ads — opt-in, off by default.** Turn on the `codecash.relevantAds` setting to match ads
+  to your tech stack and earn the premium rate. codecash reads only your project's dependency
+  manifests (like `package.json`, `go.mod`, `requirements.txt`) **locally** and sends ~a dozen coarse
+  tags such as `fw:next` — never your code, file names, or prompts. It stays off until you enable it,
+  and you can turn it back off in one click.
+
 ## [0.1.10] — 2026-06-17
 
 ### Fixed
