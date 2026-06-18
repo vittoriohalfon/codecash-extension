@@ -34,6 +34,14 @@ const extensionConfig = {
   outfile: "dist/extension.cjs",
   external: ["vscode"],
   alias,
+  // Prefer each dependency's ESM entry (`module`) over its legacy `main`. esbuild's node default is
+  // ["main","module"], which selects jsonc-parser's UMD build — its dynamic `require("./impl/format")`
+  // calls can't be statically inlined, so they leak into the bundle as runtime requires and the
+  // extension dies on activation with "Cannot find module './impl/format'". The ESM build uses static
+  // imports esbuild fully inlines. (jsonc-parser has no `exports` map, so this is the right lever.)
+  // NOTE: this build config is hand-maintained here, NOT synced from the monorepo — keep it in step
+  // with apps/extension/esbuild.mjs. The bundle-activation guard (test/, synced) enforces it.
+  mainFields: ["module", "main"],
   sourcemap: true,
   logLevel: "info",
   // Bake the default server URL for published builds: `CODECASH_DEFAULT_API_BASE_URL=https://… pnpm build`.
