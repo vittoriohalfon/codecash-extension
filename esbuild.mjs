@@ -15,6 +15,9 @@ const alias = {
   "@codecash/client-core/render": fileURLToPath(
     new URL("./vendor/client-core/adapters/claude-cli/render.ts", import.meta.url),
   ),
+  "@codecash/client-core/render-codex": fileURLToPath(
+    new URL("./vendor/client-core/adapters/codex-cli/render.ts", import.meta.url),
+  ),
   "@codecash/client-core/daemon-lock": fileURLToPath(
     new URL("./vendor/client-core/lib/daemonControl.ts", import.meta.url),
   ),
@@ -71,6 +74,25 @@ const renderConfig = {
 };
 
 /**
+ * The codex-cli render-only status-line script — the Codex counterpart to renderConfig, same
+ * dependency-free / single-file / never-throw contract. Hand-maintained in step with
+ * apps/extension/esbuild.mjs; the vendored `@codecash/client-core/render-codex` import resolves
+ * via `alias`. Mirrors the codex adapter synced from packages/client-core.
+ */
+const renderCodexConfig = {
+  entryPoints: ["src/renderCodex.ts"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node18",
+  outfile: "dist/renderCodex.mjs",
+  alias,
+  minify: true,
+  sourcemap: false,
+  logLevel: "info",
+};
+
+/**
  * The `vscode:uninstall` hook (wired in package.json) — VS Code runs it as a plain node script on
  * uninstall to restore the user's original `~/.claude/settings.json` + panel `claudeCode.spinnerVerbs`.
  * Bundled standalone like the render script (client-core + jsonc-parser inlined, no `vscode`).
@@ -95,6 +117,7 @@ if (watch) {
   const ctxs = await Promise.all([
     esbuild.context(extensionConfig),
     esbuild.context(renderConfig),
+    esbuild.context(renderCodexConfig),
     esbuild.context(uninstallConfig),
   ]);
   await Promise.all(ctxs.map((c) => c.watch()));
@@ -103,6 +126,7 @@ if (watch) {
   await Promise.all([
     esbuild.build(extensionConfig),
     esbuild.build(renderConfig),
+    esbuild.build(renderCodexConfig),
     esbuild.build(uninstallConfig),
   ]);
 }

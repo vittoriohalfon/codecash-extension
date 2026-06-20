@@ -10,6 +10,9 @@ export default defineConfig({
       "@codecash/client-core/render": fileURLToPath(
         new URL("./vendor/client-core/adapters/claude-cli/render.ts", import.meta.url),
       ),
+      "@codecash/client-core/render-codex": fileURLToPath(
+        new URL("./vendor/client-core/adapters/codex-cli/render.ts", import.meta.url),
+      ),
       "@codecash/client-core/daemon-lock": fileURLToPath(
         new URL("./vendor/client-core/lib/daemonControl.ts", import.meta.url),
       ),

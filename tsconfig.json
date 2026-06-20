@@ -23,6 +23,7 @@
       "@codecash/shared": ["./vendor/shared/index.ts"],
       "@codecash/client-core": ["./vendor/client-core/index.ts"],
       "@codecash/client-core/render": ["./vendor/client-core/adapters/claude-cli/render.ts"],
+      "@codecash/client-core/render-codex": ["./vendor/client-core/adapters/codex-cli/render.ts"],
       "@codecash/client-core/daemon-lock": ["./vendor/client-core/lib/daemonControl.ts"]
     }
   },
