@@ -70,10 +70,32 @@ const renderConfig = {
   logLevel: "info",
 };
 
+/**
+ * The `vscode:uninstall` hook (wired in package.json) — VS Code runs it as a plain node script on
+ * uninstall to restore the user's original `~/.claude/settings.json` + panel `claudeCode.spinnerVerbs`.
+ * Bundled standalone like the render script (client-core + jsonc-parser inlined, no `vscode`).
+ * Hand-maintained in step with apps/extension/esbuild.mjs in the monorepo; test/uninstallBundle.test.ts
+ * (synced) fails the build if this entry is dropped.
+ */
+const uninstallConfig = {
+  entryPoints: ["src/uninstall.ts"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node18",
+  outfile: "dist/uninstall.mjs",
+  alias,
+  mainFields: ["module", "main"],
+  minify: true,
+  sourcemap: false,
+  logLevel: "info",
+};
+
 if (watch) {
   const ctxs = await Promise.all([
     esbuild.context(extensionConfig),
     esbuild.context(renderConfig),
+    esbuild.context(uninstallConfig),
   ]);
   await Promise.all(ctxs.map((c) => c.watch()));
   console.log("esbuild: watching…");
@@ -81,5 +103,6 @@ if (watch) {
   await Promise.all([
     esbuild.build(extensionConfig),
     esbuild.build(renderConfig),
+    esbuild.build(uninstallConfig),
   ]);
 }
