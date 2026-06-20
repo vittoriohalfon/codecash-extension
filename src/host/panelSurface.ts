@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { versionGte } from "@codecash/client-core";
 import { resolveUserSettingsPath, writeUserSettingFile } from "../lib/userSettings.js";
+import { panelCapturePath, writePanelCapture } from "../lib/panelCapture.js";
 import {
   isSpinnerVerbsValue,
   PanelSpinnerBridge,
@@ -83,22 +84,48 @@ export class VsCodeSpinnerConfigStore implements SpinnerConfigStore {
   }
 }
 
-/** Durable capture of the user's original, in `context.globalState` (survives window reloads). */
+/**
+ * Durable capture of the user's original `claudeCode.spinnerVerbs`. `context.globalState` is the live
+ * source of truth the host reads (survives window reloads); every write is ALSO mirrored to
+ * `~/.codecash/panel-capture.json` so the vscode-free `vscode:uninstall` script can restore the panel
+ * without a VS Code context. The disk mirror is best-effort — a write failure must never break
+ * enable/disable, it just means panel restore-on-uninstall is unavailable for that user.
+ */
 export class MementoCaptureStore implements CaptureStore {
-  constructor(private readonly memento: vscode.Memento) {}
+  constructor(
+    private readonly memento: vscode.Memento,
+    private readonly capturePath: string,
+    private readonly userSettingsPath: string | null,
+  ) {}
   read(): CapturedSpinner | undefined {
     return this.memento.get<CapturedSpinner>(PANEL_CAPTURE_KEY);
   }
   async write(v: CapturedSpinner | undefined): Promise<void> {
     await this.memento.update(PANEL_CAPTURE_KEY, v);
+    try {
+      writePanelCapture(
+        this.capturePath,
+        v === undefined ? undefined : { original: v.original, userSettingsPath: this.userSettingsPath },
+      );
+    } catch {
+      /* best-effort mirror — globalState above is authoritative; only the uninstall restore is lost */
+    }
   }
 }
 
 /**
  * Build a panel bridge wired to the live user settings.json + durable capture store. `globalStoragePath`
- * (from `context.globalStorageUri.fsPath`) locates the editor's user settings.json.
+ * (from `context.globalStorageUri.fsPath`) locates the editor's user settings.json; `codecashDir` is
+ * where the on-disk capture mirror lives so the uninstall hook can find it.
  */
-export function createPanelBridge(memento: vscode.Memento, globalStoragePath: string): PanelSpinnerBridge {
+export function createPanelBridge(
+  memento: vscode.Memento,
+  globalStoragePath: string,
+  codecashDir: string,
+): PanelSpinnerBridge {
   const settingsPath = resolveUserSettingsPath(globalStoragePath);
-  return new PanelSpinnerBridge(new VsCodeSpinnerConfigStore(settingsPath), new MementoCaptureStore(memento));
+  return new PanelSpinnerBridge(
+    new VsCodeSpinnerConfigStore(settingsPath),
+    new MementoCaptureStore(memento, panelCapturePath(codecashDir), settingsPath),
+  );
 }

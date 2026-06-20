@@ -215,6 +215,39 @@ export function uninstallClaudeCliAdapter(paths: CodecashPaths): UninstallResult
   return { ok: true, restored: captured != null };
 }
 
+/**
+ * Conservative terminal-surface restore for the AUTOMATIC uninstall hooks — the CLI's `preuninstall`
+ * npm script (`npm rm -g codecash`) and the extension's `vscode:uninstall` node script. It exists
+ * because neither package-removal path runs the explicit `codecash uninstall` / `codecash.disable`,
+ * so without it a bare uninstall strands our injected `statusLine` (now pointing at a deleted
+ * `dist/render.mjs`) and a frozen spinner ad in `~/.claude/settings.json`.
+ *
+ * Unlike {@link uninstallClaudeCliAdapter} — which an EXPLICIT user action calls, where the live
+ * statusLine is always ours — these hooks fire on ANY removal, including when we never injected a
+ * terminal surface (the CLI installed but `codecash install` never run; a panel-only extension user
+ * with their own unrelated `~/.claude/settings.json`). So it adds one guard: act ONLY when the live
+ * statusLine carries OUR ownership marker, so it can never delete a statusLine the user set
+ * themselves. When the line IS ours it delegates to the same surgical restore the explicit path uses
+ * (captured original back, or our keys deleted when the user had none).
+ *
+ * Never throws on the happy path; returns `restored: false` (a no-op) when there's nothing of ours.
+ */
+export function reconcileTerminalUninstall(paths: CodecashPaths): UninstallResult {
+  let settings: Record<string, unknown>;
+  try {
+    const existing = readJson<Record<string, unknown>>(paths.claudeSettings);
+    if (existing === undefined) return { ok: false, reason: "no_settings" };
+    settings = existing;
+  } catch {
+    return { ok: false, reason: "settings_unparseable" };
+  }
+  // The gate that separates an automatic hook from an explicit disable: only restore when the
+  // statusLine on disk is one WE wrote (marker-tagged). A statusLine the user set themselves — or
+  // none at all — is left exactly as-is, so a stray `npm rm` can't eat their config.
+  if (!isOurStatusLine(settings.statusLine)) return { ok: true, restored: false };
+  return uninstallClaudeCliAdapter(paths);
+}
+
 export type RestoreSpinnerResult =
   | { ok: true; restored: boolean }
   | { ok: false; reason: "no_settings" | "settings_unparseable" | "not_installed" };

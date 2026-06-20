@@ -11,10 +11,17 @@ import {
 /** Resolve all the on-disk locations the claude-cli adapter touches. */
 export function codecashPaths(home: string = homedir()) {
   const claudeSettings = join(home, ".claude", "settings.json");
+  // Codex honours CODEX_HOME (falls back to ~/.codex) — mirror it so we target the real config.toml.
+  const codexHome =
+    process.env.CODEX_HOME && process.env.CODEX_HOME.length > 0
+      ? process.env.CODEX_HOME
+      : join(home, ".codex");
   const codecashDir = join(home, CODECASH_DIR);
   return {
     home,
     claudeSettings,
+    /** the Codex TUI config we add `[tui].status_line_command` to (TOML). */
+    codexSettings: join(codexHome, "config.toml"),
     codecashDir,
     adCache: join(codecashDir, AD_CACHE_FILE),
     /** dir of per-workspace ad caches (`ads/<workspaceKey>.json`) — distinct ad per parallel session. */
@@ -27,6 +34,10 @@ export function codecashPaths(home: string = homedir()) {
     config: join(codecashDir, "config.json"),
     /** backup of the user's original settings.json for clean restore. */
     settingsBackup: join(codecashDir, SETTINGS_BACKUP_FILE),
+    /** capture of whether we created the Codex `[tui]` table, for a clean codex-cli restore. */
+    codexConfig: join(codecashDir, "codex-config.json"),
+    /** belt-and-suspenders backup of the user's original ~/.codex/config.toml. */
+    codexSettingsBackup: join(codecashDir, "codex-config-backup.toml"),
   };
 }
 

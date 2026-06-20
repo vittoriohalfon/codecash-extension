@@ -93,6 +93,9 @@ function authPath(rawPath: string): string {
 }
 
 export function deactivate(): void {
-  // Intentionally do NOT auto-restore here: disabling is an explicit user action so the ad keeps
-  // serving across reloads. `codecash.disable` performs the clean restore.
+  // Intentionally do NOT auto-restore here: deactivate runs on every shutdown/disable, so restoring
+  // would drop the ad on each reload. The two real teardowns are handled elsewhere: `codecash.disable`
+  // (explicit, in-process) and the `vscode:uninstall` hook (src/uninstall.ts → dist/uninstall.mjs),
+  // which runs as plain node on a genuine uninstall and restores both surfaces from the ~/.codecash
+  // captures.
 }

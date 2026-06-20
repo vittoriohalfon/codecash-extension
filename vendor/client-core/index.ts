@@ -40,3 +40,7 @@ export * from "./lib/adLabel.js";
 export * from "./adapters/types.js";
 export * from "./adapters/claude-cli/index.js";
 export * from "./adapters/claude-cli/render.js";
+
+// ── codex-cli terminal adapter + its support ─────────────────────────────────────────────────────
+export * from "./lib/codexSettings.js";
+export * from "./adapters/codex-cli/index.js";

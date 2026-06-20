@@ -166,7 +166,7 @@ export class CodecashService {
     // This window's project folder keys the per-workspace ad cache → distinct ad per parallel session.
     const workspaceDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
     this.adapter = new ClaudeCliAdapter(renderScriptPath, this.paths, workspaceDir);
-    this.panel = createPanelBridge(context.globalState, context.globalStorageUri.fsPath);
+    this.panel = createPanelBridge(context.globalState, context.globalStorageUri.fsPath, this.paths.codecashDir);
     this.out = vscode.window.createOutputChannel("codecash");
     // Resolve the base URL per-request so changing `codecash.apiBaseUrl` takes effect without reload.
     this.api = new ApiClient({ baseUrl: () => this.baseUrl(), getToken: this.auth.getToken });
