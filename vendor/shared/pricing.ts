@@ -65,6 +65,26 @@ export function blockPurchasePricing(bidCents: number, blocks: number) {
   };
 }
 
+/**
+ * Convert a dev's available µUSD balance into a whole-cent Stripe payout. Stripe transfers are
+ * cents-native, so we floor µUSD → cents and only ever pay out (and reserve) the cent-aligned part;
+ * the sub-cent remainder stays on the dev's pending balance for next time (decision D1). Returns
+ * BOTH the cents to transfer and the EXACT µUSD that reserves (cents × MICROS_PER_CENT), so the
+ * cash-out route, the admin transfer, and the dashboard all agree on what a payout actually removes
+ * from the balance — `reservedMicros` is always ≤ the input and cent-aligned, never the raw input.
+ * A negative/zero/non-finite input yields `{ cents: 0, reservedMicros: 0 }`.
+ */
+export function payoutCentsFromMicros(availableMicros: number): {
+  cents: number;
+  reservedMicros: number;
+} {
+  if (!Number.isFinite(availableMicros) || availableMicros <= 0) {
+    return { cents: 0, reservedMicros: 0 };
+  }
+  const cents = Math.floor(availableMicros / MICROS_PER_CENT);
+  return { cents, reservedMicros: cents * MICROS_PER_CENT };
+}
+
 /** Display economics for the landing page, derived from one block at `priceMicros`. */
 export function landingEconomics(priceMicros: number, impressionsTotal: number = IMPRESSIONS_PER_BLOCK) {
   const perImpression = microsPerImpression(priceMicros, impressionsTotal);

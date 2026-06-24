@@ -224,8 +224,13 @@ export type ClientEventBatch = z.infer<typeof ClientEventBatchSchema>;
  * min $1; the bid sets auction priority. Icon is an optional `data:image/...;base64,…` URI ≤64KB.
  */
 const ICON_MAX_CHARS = 90_000; // ~64KB binary → ~88KB base64 + the data-URI prefix.
-export const AdvertiserBidSchema = z.object({
-  email: z.string().email().max(254),
+
+/**
+ * The campaign creative + bid fields, shared by the anonymous Stripe bid (AdvertiserBidSchema, which
+ * adds `email`) and the authed credit-wallet deploy (AdvertiserCampaignSchema, no email — identity is
+ * the session). Kept as one literal so the two paths validate the SAME creative shape and bid floors.
+ */
+const advertiserCampaignFields = {
   headline: z.string().trim().min(3).max(60),
   clickUrl: z.string().url().startsWith("https://", "Destination URL must be https://").max(2048),
   /**
@@ -248,19 +253,54 @@ export const AdvertiserBidSchema = z.object({
    * Validated against the closed taxonomy here; persisted to creatives.targeting on the draft creative.
    */
   targeting: TargetingPredicateSchema.optional(),
-}).superRefine((bid, ctx) => {
-  // Targeted campaigns carry a higher bid floor (MIN_BID_USD_TARGETED). Enforced here so the server
-  // rejects an under-floor targeted bid even if a client skipped the check; the error is pathed to
-  // `bidUsd` so the form can highlight the right field.
-  if (isTargetedPredicate(bid.targeting) && bid.bidUsd < MIN_BID_USD_TARGETED) {
+} as const;
+
+/** Shared bid-floor refinement: a targeted campaign carries the higher MIN_BID_USD_TARGETED floor. */
+function refineTargetedBidFloor(
+  bid: { bidUsd: number; targeting?: unknown },
+  ctx: z.RefinementCtx,
+): void {
+  // Enforced server-side so an under-floor targeted bid is rejected even if a client skipped the
+  // check; the error is pathed to `bidUsd` so the form can highlight the right field.
+  if (isTargetedPredicate(bid.targeting as never) && bid.bidUsd < MIN_BID_USD_TARGETED) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["bidUsd"],
       message: `Targeted campaigns require a minimum bid of $${MIN_BID_USD_TARGETED}.00 per block`,
     });
   }
-});
+}
+
+export const AdvertiserBidSchema = z
+  .object({ email: z.string().email().max(254), ...advertiserCampaignFields })
+  .superRefine(refineTargetedBidFloor);
 export type AdvertiserBid = z.infer<typeof AdvertiserBidSchema>;
+
+/**
+ * Body of the AUTHED self-serve campaign deploy (advertiser dashboard → deployCampaign). Identical to
+ * AdvertiserBidSchema minus `email` (the session identifies the advertiser) — same creative shape, same
+ * bid floors / targeting refinement. The campaign is funded by drawing down the credit wallet, not a
+ * per-campaign Stripe payment, but it still lands as a `draft` and goes through the same moderation queue.
+ */
+export const AdvertiserCampaignSchema = z
+  .object({ ...advertiserCampaignFields })
+  .superRefine(refineTargetedBidFloor);
+export type AdvertiserCampaign = z.infer<typeof AdvertiserCampaignSchema>;
+
+/**
+ * Body of the admin "grant credits" action (superadmin panel, ADMIN_EMAILS-gated). Tops up an
+ * advertiser's prepaid credit wallet for money received OFF-platform (bank transfer / invoice).
+ * `amountUsd` is a positive dollar figure (converted to µUSD server-side); `requestId` is the form's
+ * idempotency nonce, so a double-submit grants once (`grant:<requestId>` — CLAUDE.md money-loop rule).
+ */
+export const AdminGrantCreditsSchema = z.object({
+  advertiserId: z.string().uuid(),
+  amountUsd: z.number().positive().max(1_000_000),
+  reason: z.string().trim().max(280).optional(),
+  externalRef: z.string().trim().max(120).optional(),
+  requestId: z.string().uuid(),
+});
+export type AdminGrantCredits = z.infer<typeof AdminGrantCreditsSchema>;
 
 /**
  * Body of the admin "add an ad manually" action (the superadmin panel, ADMIN_EMAILS-gated). Lets an
