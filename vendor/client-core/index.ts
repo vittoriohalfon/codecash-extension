@@ -29,6 +29,7 @@ export * from "./lib/updateNotice.js";
 
 // ── claude-cli terminal adapter + its support ──────────────────────────────────────────────────
 export * from "./lib/paths.js";
+export * from "./lib/atomicFile.js";
 export * from "./lib/settings.js";
 export * from "./lib/adCache.js";
 export * from "./lib/osc8.js";

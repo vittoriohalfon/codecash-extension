@@ -1,10 +1,9 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
 import {
   MAX_CONCURRENT_INSTANCES,
   PRESENCE_HEARTBEAT_TTL_MS,
   PRESENCE_STALE_MS,
 } from "@codecash/shared";
+import { readTextFileTolerant, writeFileAtomic } from "./atomicFile.js";
 
 /**
  * Cross-instance presence for multi-session crediting. Every running codecash window heartbeats into
@@ -92,8 +91,9 @@ function isLive(p: InstancePresence, now: number): boolean {
 /** Read the shared presence map; returns {} on any error (best-effort, never throws). */
 export function readPresenceFile(path: string): PresenceState {
   try {
-    if (!existsSync(path)) return {};
-    const j: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const text = readTextFileTolerant(path);
+    if (text === undefined) return {};
+    const j: unknown = JSON.parse(text);
     return j && typeof j === "object" ? (j as PresenceState) : {};
   } catch {
     return {};
@@ -103,10 +103,7 @@ export function readPresenceFile(path: string): PresenceState {
 /** Atomically write the shared presence map; swallows errors (a heartbeat must never disrupt serving). */
 export function writePresenceFile(path: string, state: PresenceState): void {
   try {
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state), "utf8");
-    renameSync(tmp, path);
+    writeFileAtomic(path, JSON.stringify(state));
   } catch {
     /* best-effort */
   }

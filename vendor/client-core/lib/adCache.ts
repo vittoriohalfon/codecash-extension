@@ -1,14 +1,15 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync } from "node:fs";
-import { dirname } from "node:path";
+import { unlinkSync } from "node:fs";
 import { AD_CACHE_TTL_MS, AdCacheSchema, type AdCache } from "@codecash/shared";
+import { readTextFileTolerant, writeFileAtomic } from "./atomicFile.js";
 import { workspaceAdCachePath, sessionAdCachePath, type CodecashPaths } from "./paths.js";
 
-/** Atomic JSON write (temp + rename) so a crash can't leave the render script a half-written file. */
+/**
+ * Atomic JSON write so a crash can't leave the render script a half-written file. Goes through the
+ * hardened {@link writeFileAtomic} (unique temp name + Windows-lock retry + orphan cleanup) so two
+ * sessions writing per-session caches in the same dir can't race a shared temp.
+ */
 function writeJsonAtomic(file: string, value: unknown): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, JSON.stringify(value), "utf8");
-  renameSync(tmp, file);
+  writeFileAtomic(file, JSON.stringify(value));
 }
 
 /**
@@ -48,9 +49,10 @@ export function clearSessionAdCache(paths: CodecashPaths, key: string): void {
 }
 
 export function readAdCache(paths: CodecashPaths): AdCache | null {
-  if (!existsSync(paths.adCache)) return null;
   try {
-    return AdCacheSchema.parse(JSON.parse(readFileSync(paths.adCache, "utf8")));
+    const text = readTextFileTolerant(paths.adCache);
+    if (text === undefined) return null;
+    return AdCacheSchema.parse(JSON.parse(text));
   } catch {
     return null;
   }

@@ -1,5 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
+import { readTextFileTolerant, writeFileAtomic } from "./atomicFile.js";
 
 /**
  * Cross-window registry of the ad each live codecash window is CURRENTLY showing, so every VS Code
@@ -67,8 +66,9 @@ function isLive(e: SpinnerEntry, now: number): boolean {
 /** Read the shared spinner registry; returns {} on any error (best-effort, never throws). */
 export function readSpinnerRegistry(path: string): SpinnerRegistry {
   try {
-    if (!existsSync(path)) return {};
-    const j: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const text = readTextFileTolerant(path);
+    if (text === undefined) return {};
+    const j: unknown = JSON.parse(text);
     return j && typeof j === "object" ? (j as SpinnerRegistry) : {};
   } catch {
     return {};
@@ -78,10 +78,7 @@ export function readSpinnerRegistry(path: string): SpinnerRegistry {
 /** Atomically write the shared spinner registry; swallows errors (it must never disrupt serving). */
 export function writeSpinnerRegistry(path: string, state: SpinnerRegistry): void {
   try {
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state), "utf8");
-    renameSync(tmp, path);
+    writeFileAtomic(path, JSON.stringify(state));
   } catch {
     /* best-effort */
   }

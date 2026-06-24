@@ -1,14 +1,6 @@
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  renameSync,
-  existsSync,
-  copyFileSync,
-  unlinkSync,
-} from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, existsSync, copyFileSync, unlinkSync } from "node:fs";
 import { parse as parseToml } from "smol-toml";
+import { writeFileAtomic } from "./atomicFile.js";
 import type { CodecashPaths } from "./paths.js";
 
 /**
@@ -113,10 +105,8 @@ function statusLineCommandLine(opts: CodexInstallOptions): string {
 }
 
 function atomicWrite(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, content, "utf8");
-  renameSync(tmp, path); // atomic on the same filesystem
+  // Hardened temp+rename (unique temp name, Windows-lock retry, orphan cleanup) — see atomicFile.ts.
+  writeFileAtomic(path, content);
 }
 
 function tuiStatusLineCommand(parsed: unknown): unknown {

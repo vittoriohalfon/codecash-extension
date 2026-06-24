@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { modify, applyEdits, type FormattingOptions } from "jsonc-parser";
+import { readTextFileTolerant, writeFileAtomic } from "@codecash/client-core";
 
 /**
  * vscode-free helpers for editing the editor's USER settings.json (a JSONC file). Kept out of the
@@ -37,14 +37,14 @@ export function resolveUserSettingsPath(globalStoragePath: string): string | nul
 }
 
 /**
- * Atomically set/delete a top-level key in a JSONC settings file (temp file + rename). Treats a
- * missing file as empty. Never reflows or strips comments from the rest of the file.
+ * Atomically set/delete a top-level key in a JSONC settings file. Treats a missing file as empty and
+ * tolerates a BOM / non-UTF-8 user settings.json (decoded leniently rather than rejected as "binary",
+ * which was aborting `enable` on the panel path — docs/BUG-settings-json-atomic-write.md). The write
+ * goes through the hardened {@link writeFileAtomic} (unique temp name, Windows-lock retry, orphan
+ * cleanup). Never reflows or strips comments from the rest of the file.
  */
 export function writeUserSettingFile(path: string, key: string, value: unknown): void {
-  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const text = readTextFileTolerant(path) ?? "";
   const next = setTopLevelKey(text, key, value);
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.codecash.tmp`;
-  writeFileSync(tmp, next, "utf8");
-  renameSync(tmp, path); // atomic on the same filesystem
+  writeFileAtomic(path, next);
 }

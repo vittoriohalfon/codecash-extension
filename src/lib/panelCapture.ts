@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { readTextFileTolerant, writeFileAtomic } from "@codecash/client-core";
 
 /**
  * On-disk mirror of the panel surface's captured original `claudeCode.spinnerVerbs`. The host keeps
@@ -30,8 +31,9 @@ export function panelCapturePath(codecashDir: string): string {
 
 export function readPanelCapture(path: string): PanelCapture | undefined {
   try {
-    if (!existsSync(path)) return undefined;
-    const j: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const text = readTextFileTolerant(path);
+    if (text === undefined) return undefined;
+    const j: unknown = JSON.parse(text);
     return j && typeof j === "object" ? (j as PanelCapture) : undefined;
   } catch {
     return undefined; // unreadable/corrupt → behave as "no capture" rather than throw
@@ -52,8 +54,5 @@ export function writePanelCapture(path: string, value: PanelCapture | undefined)
     }
     return;
   }
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", "utf8");
-  renameSync(tmp, path); // atomic on the same filesystem
+  writeFileAtomic(path, JSON.stringify(value, null, 2) + "\n");
 }

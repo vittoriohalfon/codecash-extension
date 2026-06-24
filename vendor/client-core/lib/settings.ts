@@ -1,12 +1,16 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, copyFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, copyFileSync } from "node:fs";
+import { readJsonTolerant, writeFileAtomic } from "./atomicFile.js";
 import type { CodecashPaths } from "./paths.js";
 
 /**
  * Safe read/patch/restore of ~/.claude/settings.json. Every rule here exists to satisfy the
  * "never break the user's CLI" directive (PLAN §6):
  *   - parse-or-refuse: if settings.json isn't valid JSON, we DON'T touch it.
- *   - atomic writes: write a temp file then rename, so a crash can't leave a half-written file.
+ *   - atomic + concurrency-safe writes: temp file then rename via {@link writeFileAtomic} (unique temp
+ *     name, Windows-lock retry, orphan cleanup), so a crash can't leave a half-written file and two
+ *     windows can't race the same temp (docs/BUG-settings-json-atomic-write.md).
+ *   - tolerant read: a BOM / CRLF / non-UTF-8 settings.json is decoded leniently rather than rejected
+ *     as "binary", so a quirky file is parse-or-refused — never an uncaught crash on enable.
  *   - chain-capture: stash any pre-existing statusLine/spinnerVerbs and restore them on uninstall,
  *     instead of clobbering the user's config.
  */
@@ -24,16 +28,17 @@ interface CapturedConfig {
   installedAt: number;
 }
 
+/**
+ * Tolerant read: `undefined` if missing, the parsed value if valid. A BOM/encoding quirk no longer
+ * crashes (see {@link readJsonTolerant}); a genuine JSON syntax error still throws, which every caller
+ * here already catches → `{ ok:false, reason:"settings_unparseable" }` (parse-or-refuse).
+ */
 function readJson<T>(path: string): T | undefined {
-  if (!existsSync(path)) return undefined;
-  return JSON.parse(readFileSync(path, "utf8")) as T;
+  return readJsonTolerant<T>(path);
 }
 
 function writeJsonAtomic(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", "utf8");
-  renameSync(tmp, path); // atomic on the same filesystem
+  writeFileAtomic(path, JSON.stringify(value, null, 2) + "\n");
 }
 
 /**
