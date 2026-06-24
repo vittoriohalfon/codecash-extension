@@ -72,6 +72,10 @@
       {
         "command": "codecash.shareEarnings",
         "title": "codecash: Share earnings & invite a dev"
+      },
+      {
+        "command": "codecash.contactSupport",
+        "title": "codecash: Contact support"
       }
     ],
     "menus": {
@@ -163,6 +167,11 @@
           ],
           "default": "off",
           "markdownDescription": "**Relevant ads — earn more.** When set to `relevant`, codecash derives ~a dozen coarse tags (e.g. `fw:next`, `lang:typescript`) from your workspace's manifest files (package.json, go.mod, Dockerfile, …) and sends **only those tags** so advertisers can match your stack. It **never** sends your code, file or repo names, paths, or prompts. Off by default; change takes effect on the next ad fetch."
+        },
+        "codecash.codexSurfaces": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**Experimental — earn on OpenAI Codex too (off by default).** When on, codecash also shows ads on Codex's surfaces: a one-line banner on the `codex` CLI at launch, and (if the Codex VS Code panel is installed) a small ad pill in the panel while it's *thinking*. Unlike the Claude Code surfaces, Codex exposes no official hook, so these reach it by wrapping the `codex` PATH binary and patching the Codex panel extension on disk — both fully reversible (restored on Disable), but more fragile (a Codex update can revert the panel patch until the next reload) and potentially against those tools' terms. Leave off unless you've opted in deliberately. Requires a build with Codex surfaces compiled in."
         }
       }
     }

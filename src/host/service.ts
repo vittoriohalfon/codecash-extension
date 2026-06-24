@@ -32,6 +32,7 @@ import {
   readSpinnerRegistry,
   writeSpinnerRegistry,
   deriveDeviceTags,
+  codexSurfacesEnabled,
 } from "@codecash/client-core";
 import {
   daemonLiveness,
@@ -46,6 +47,17 @@ import {
   MIN_CLAUDE_CODE_PANEL_VERSION,
   type PanelDetection,
 } from "./panelSurface.js";
+import { CodexSurfaceManager, codexOptInFileExists, type CodexDetection } from "./codexSurfaces.js";
+
+/**
+ * Build-time master switch for the experimental Codex ad surfaces (esbuild `define`, default false —
+ * see esbuild.mjs). When false the whole codex path is dormant for everyone regardless of settings,
+ * so the ToS/brittleness risk can't be flipped on by a stray config. Declared for the typechecker; the
+ * bundle replaces it with a literal. See {@link codexSurfacesEnabled} for the per-user opt-in on top.
+ */
+declare const __BUILD_CODEX_SURFACES__: boolean | undefined;
+const CODEX_BUILD_ENABLED =
+  typeof __BUILD_CODEX_SURFACES__ !== "undefined" && __BUILD_CODEX_SURFACES__ === true;
 
 // Baked at build time via esbuild `define` (see esbuild.mjs). A published build can ship a prod
 // server URL through the CODECASH_DEFAULT_API_BASE_URL env var without any code edit, while local
@@ -95,6 +107,12 @@ export class CodecashService {
    * spinner verb. Driven in parallel to {@link adapter}; best-effort, never breaks the CLI surface.
    */
   private readonly panel: PanelSpinnerBridge;
+  /**
+   * The opt-in Codex surfaces (PATH-shim banner + panel bundle-patch + loopback). Off by default and
+   * fully self-contained — see {@link CodexSurfaceManager}. The service only touches it through
+   * {@link codexEnabled}-gated calls, so the claude-cli loop is unchanged when the feature is off.
+   */
+  private readonly codex: CodexSurfaceManager;
   private controller: ServeController | null = null;
   private reporter: TelemetryReporter | null = null;
   /** Anonymous, pre-auth funnel + crash reporter (always available, even before sign-in). */
@@ -161,12 +179,20 @@ export class CodecashService {
     context: vscode.ExtensionContext,
     private readonly widget: vscode.StatusBarItem,
     renderScriptPath: string,
+    renderCodexScriptPath: string,
   ) {
     this.auth = new AuthStore(context.secrets);
     // This window's project folder keys the per-workspace ad cache → distinct ad per parallel session.
     const workspaceDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
     this.adapter = new ClaudeCliAdapter(renderScriptPath, this.paths, workspaceDir);
     this.panel = createPanelBridge(context.globalState, context.globalStorageUri.fsPath, this.paths.codecashDir);
+    this.codex = new CodexSurfaceManager({
+      paths: this.paths,
+      renderCodexScriptPath,
+      workspaceDir,
+      log: (m) => this.out.appendLine(m),
+      reportError: (e, where) => this.clientReporter.reportError(e, where),
+    });
     this.out = vscode.window.createOutputChannel("codecash");
     // Resolve the base URL per-request so changing `codecash.apiBaseUrl` takes effect without reload.
     this.api = new ApiClient({ baseUrl: () => this.baseUrl(), getToken: this.auth.getToken });
@@ -217,6 +243,21 @@ export class CodecashService {
   private baseUrl(): string {
     const v = vscode.workspace.getConfiguration("codecash").get<string>("apiBaseUrl");
     return (v && v.trim()) || DEFAULT_BASE_URL;
+  }
+
+  /**
+   * Whether the opt-in Codex surfaces may run. Off by default: needs the build master switch AND a
+   * per-user opt-in (the `codecash.codexSurfaces` setting, the `CODECASH_CODEX_SURFACES` env, or a
+   * `~/.codecash/codex.enabled` file). Read fresh so toggling the setting applies without a reload.
+   */
+  private codexEnabled(): boolean {
+    return codexSurfacesEnabled({
+      buildEnabled: CODEX_BUILD_ENABLED,
+      settingEnabled:
+        vscode.workspace.getConfiguration("codecash").get<boolean>("codexSurfaces") === true,
+      envValue: process.env.CODECASH_CODEX_SURFACES,
+      optInFileExists: codexOptInFileExists(this.paths),
+    });
   }
 
   /** Hydrate auth + paint the widget, then resume serving if the user left it enabled. */
@@ -340,6 +381,15 @@ export class CodecashService {
     await vscode.env.openExternal(vscode.Uri.parse(`${this.baseUrl()}/app/dashboard`));
   }
 
+  /**
+   * Open the web support form (Contact support). Public, no-login page; `?from=extension` tags the
+   * ticket source. The whole conversation then happens by email — the extension is just the doorway,
+   * so it never handles support content itself (no settings touched, money loop untouched).
+   */
+  async contactSupport(): Promise<void> {
+    await vscode.env.openExternal(vscode.Uri.parse(`${this.baseUrl()}/support?from=extension`));
+  }
+
   /** Prompt for a pasted token (no browser reopen). Returns true if a token was stored. */
   private async promptPasteToken(autoEnable: boolean): Promise<boolean> {
     const pasted = await vscode.window.showInputBox({
@@ -405,18 +455,24 @@ export class CodecashService {
     ok: boolean;
     cli: PreflightResult;
     panel: PanelDetection | null;
+    codex: CodexDetection | null;
     label?: string;
     reason?: string;
   }> {
     const cli = await this.adapter.preflight();
     const panel = detectClaudeCodePanel();
     const panelOk = !!panel && panel.compatible;
+    // The opt-in Codex surfaces only count when the gate allows them (off by default).
+    const codex = this.codexEnabled() ? await this.codex.detect() : null;
+    const codexLabel = codex?.label ? ` + ${codex.label}` : "";
+
     if (cli.ok) {
       return {
         ok: true,
         cli,
         panel,
-        label: `Claude Code ${cli.ccVersion}${panelOk ? " + extension panel" : ""}`,
+        codex,
+        label: `Claude Code ${cli.ccVersion}${panelOk ? " + extension panel" : ""}${codexLabel}`,
       };
     }
     if (panelOk) {
@@ -424,8 +480,12 @@ export class CodecashService {
         ok: true,
         cli,
         panel,
-        label: `the Claude Code extension panel${panel!.version ? ` ${panel!.version}` : ""}`,
+        codex,
+        label: `the Claude Code extension panel${panel!.version ? ` ${panel!.version}` : ""}${codexLabel}`,
       };
+    }
+    if (codex?.label) {
+      return { ok: true, cli, panel, codex, label: codex.label };
     }
     const reason =
       cli.ccVersion != null
@@ -433,7 +493,7 @@ export class CodecashService {
         : panel != null
           ? `the Claude Code extension is too old (need ${MIN_CLAUDE_CODE_PANEL_VERSION}+)`
           : "Claude Code not found — install the CLI or the Claude Code VS Code extension";
-    return { ok: false, cli, panel, reason };
+    return { ok: false, cli, panel, codex, reason };
   }
 
   /**
@@ -444,7 +504,7 @@ export class CodecashService {
    */
   private async injectSurfaces(
     seed: string,
-    surf: { cli: PreflightResult; panel: PanelDetection | null },
+    surf: { cli: PreflightResult; panel: PanelDetection | null; codex: CodexDetection | null },
   ): Promise<{ ok: true } | { ok: false; error: unknown }> {
     let anyOk = false;
     let firstErr: unknown;
@@ -464,6 +524,17 @@ export class CodecashService {
         firstErr ??= e;
         this.clientReporter.reportError(e, "enable.panel");
         this.out.appendLine(`panel inject failed (non-fatal): ${stringifyErr(e)}`);
+      }
+    }
+    // Opt-in Codex surfaces (gated). Best-effort + isolated: a bundle-patch hiccup can never block the
+    // claude surfaces or the money loop. `enable` is idempotent, so this also re-asserts on resume.
+    if (surf.codex && surf.codex.cli) {
+      try {
+        if (await this.codex.enable(seed)) anyOk = true;
+      } catch (e) {
+        firstErr ??= e;
+        this.clientReporter.reportError(e, "enable.codex");
+        this.out.appendLine(`codex inject failed (non-fatal): ${stringifyErr(e)}`);
       }
     }
     return anyOk ? { ok: true } : { ok: false, error: firstErr ?? new Error("no injectable surface") };
@@ -580,6 +651,9 @@ export class CodecashService {
       sink: {
         pushAd: async (serve) => {
           this.adapter.cacheAd(serve);
+          // Opt-in Codex surfaces: refresh the CLI banner; the panel overlay reads this serve live via
+          // the loopback, so there is nothing to write for it. No-op when codex isn't enabled.
+          this.codex.pushAd(serve);
           this.currentLabel = formatAdLabel(serve.creative.brandName, serve.creative.adText);
           this.coalesceSpinner(); // reconcile now so a fresh ad shows without waiting for the next tick
         },
@@ -749,6 +823,14 @@ export class CodecashService {
       await this.panel.disable();
     } catch (e) {
       this.out.appendLine(`panel restore failed (non-fatal): ${stringifyErr(e)}`);
+    }
+    // Restore the opt-in Codex surfaces too (un-shim the CLI binary, un-patch the panel bundle, stop the
+    // loopback). Unconditional + self-guarding: a no-op when nothing codex was injected. The daemon is
+    // claude-cli only, so this runs even while deferred.
+    try {
+      await this.codex.disable();
+    } catch (e) {
+      this.out.appendLine(`codex restore failed (non-fatal): ${stringifyErr(e)}`);
     }
     // Leave the presence cohort promptly so other sessions' concurrency cap frees up immediately.
     writePresenceFile(

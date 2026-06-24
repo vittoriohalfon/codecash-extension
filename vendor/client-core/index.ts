@@ -44,3 +44,9 @@ export * from "./adapters/claude-cli/render.js";
 // ── codex-cli terminal adapter + its support ─────────────────────────────────────────────────────
 export * from "./lib/codexSettings.js";
 export * from "./adapters/codex-cli/index.js";
+// The PATH-shim banner — the released-Codex fallback the host prefers until a Codex ships the clean
+// status_line_command hook (see adapters/codex-cli/index.ts CODEX_MIN_VERSION).
+export * from "./adapters/codex-cli-wrapper/index.js";
+
+// ── codex surface gate (shared; opt-in, off by default, gated at the host) ─────────────────────────
+export * from "./lib/codexGate.js";

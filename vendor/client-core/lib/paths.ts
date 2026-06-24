@@ -38,6 +38,14 @@ export function codecashPaths(home: string = homedir()) {
     codexConfig: join(codecashDir, "codex-config.json"),
     /** belt-and-suspenders backup of the user's original ~/.codex/config.toml. */
     codexSettingsBackup: join(codecashDir, "codex-config-backup.toml"),
+    /** pre-rendered one-line ad banner the codex-cli PATH-shim wrapper prints at launch. */
+    codexCliBanner: join(codecashDir, "codex-cli-banner.txt"),
+    /** records how we shimmed the codex binary (symlink vs regular file) for a clean restore. */
+    codexCliShimMeta: join(codecashDir, "codex-cli-shim.json"),
+    /** backup copy of the pristine codex shim, used only when it was a regular file (not a symlink). */
+    codexCliShimBackup: join(codecashDir, "codex-cli-shim.orig"),
+    /** opt-in marker: presence enables the experimental, off-by-default Codex ad surfaces. */
+    codexOptIn: join(codecashDir, "codex.enabled"),
   };
 }
 

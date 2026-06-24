@@ -10,6 +10,9 @@ import { CodecashService } from "./host/service.js";
  */
 export function activate(context: vscode.ExtensionContext): void {
   const renderScriptPath = context.asAbsolutePath("dist/render.mjs");
+  // The Codex status-line render script (config adapter's [tui].status_line_command target). Resolved
+  // here so it's an absolute path inside the installed extension, like the claude render script above.
+  const renderCodexScriptPath = context.asAbsolutePath("dist/renderCodex.mjs");
 
   const widget = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   widget.text = "$(rss) codecash";
@@ -18,7 +21,7 @@ export function activate(context: vscode.ExtensionContext): void {
   widget.show();
   context.subscriptions.push(widget);
 
-  const service = new CodecashService(context, widget, renderScriptPath);
+  const service = new CodecashService(context, widget, renderScriptPath, renderCodexScriptPath);
   context.subscriptions.push({ dispose: () => service.dispose() });
   // Capture an init crash (auth load / resume) instead of leaving it an unhandled rejection.
   void service.init().catch((e) => service.reportError(e, "init"));
@@ -45,6 +48,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("codecash.signOut", guard("command:signOut", () => service.signOut())),
     vscode.commands.registerCommand("codecash.status", guard("command:status", () => service.showStatus())),
     vscode.commands.registerCommand("codecash.shareEarnings", guard("command:shareEarnings", () => service.share())),
+    vscode.commands.registerCommand("codecash.contactSupport", guard("command:contactSupport", () => service.contactSupport())),
     // The web link-device page deep-links the token back here, e.g.
     // <uriScheme>://codecash.codecash/auth?token=<jwt>&state=<nonce>. The state is verified in
     // signInWithToken so an unsolicited link can't bind this editor to another account.
