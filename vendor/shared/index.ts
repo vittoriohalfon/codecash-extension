@@ -4,5 +4,6 @@
 export * from "./constants.js";
 export * from "./schemas.js";
 export * from "./pricing.js";
+export * from "./countries.js";
 export * from "./targeting.js";
 export * from "./idempotency.js";

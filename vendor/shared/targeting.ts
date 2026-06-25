@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CountryCodeSchema, normalizeCountry } from "./countries.js";
 
 /**
  * Stack-aware ad targeting — the ONE shared module (docs/targeting-plan.md). The taxonomy, the
@@ -123,10 +124,17 @@ export type DeviceContext = z.infer<typeof DeviceContextSchema>;
  * boost (ranks a match above an untargeted ad at equal bid); `exclude` is a HARD filter (never serve
  * to a device carrying an excluded tag). Empty {} = untargeted, matches everyone at the baseline.
  * Keys are namespaces; values are full `ns:tag` strings (e.g. include.fw = ["fw:next"]).
+ *
+ * `countries` is a separate, orthogonal GEO dimension: an allowlist of ISO alpha-2 codes the creative
+ * may serve in. Unlike the stack tags (client-derived, privacy-gated, SOFT include), country is
+ * RESOLVED SERVER-SIDE from the request and is a HARD filter — a non-empty list serves ONLY to a
+ * viewer in one of those countries; empty/absent = worldwide. It does NOT participate in matchScore
+ * (it's a gate, not a relevance weight) and is enforced by `matchesGeo` + the SQL eligibility filter.
  */
 export type TargetingPredicate = {
   include?: Record<string, TargetingTag[]>;
   exclude?: Record<string, TargetingTag[]>;
+  countries?: string[];
 };
 
 /**
@@ -154,10 +162,26 @@ const NamespaceTagMap = z
       }
     }
   });
+/**
+ * Country allowlist field. Preprocessed to UPPERCASE + deduped before validation so an advertiser can
+ * pass "il" / "IL" interchangeably; each code is then checked against the closed country allowlist
+ * (CountryCodeSchema), so an off-list code fails the write (fail-closed) rather than being stored as a
+ * geo nobody can ever match. An empty array is dropped to `undefined` so a "select none" is stored as
+ * untargeted (worldwide), keeping `{}` the canonical untargeted predicate.
+ */
+const CountryListSchema = z.preprocess(
+  (v) =>
+    Array.isArray(v)
+      ? Array.from(new Set(v.map((c) => (typeof c === "string" ? c.trim().toUpperCase() : c))))
+      : v,
+  z.array(CountryCodeSchema).transform((arr) => (arr.length > 0 ? arr : undefined)),
+);
+
 export const TargetingPredicateSchema = z
   .object({
     include: NamespaceTagMap.optional(),
     exclude: NamespaceTagMap.optional(),
+    countries: CountryListSchema.optional(),
   })
   .strict();
 
@@ -241,6 +265,30 @@ export function matchScore(
   }
   const fraction = satisfied / includeNamespaces.length;
   return baseline + (1 - baseline) * fraction;
+}
+
+// ── geo (country) hard filter ─────────────────────────────────────────────────────────────────────
+
+/**
+ * HARD geo gate, separate from the tag relevance score. Returns whether a creative is SERVABLE to a
+ * viewer in `viewerCountry` (a normalized ISO alpha-2, or null when the request's country can't be
+ * resolved):
+ *   - no country restriction (empty/absent `countries`) → true (worldwide, matches everyone);
+ *   - restricted → true ONLY if `viewerCountry` is one of the listed countries.
+ * Fail-CLOSED: an UNKNOWN viewer country (null) NEVER matches a geo-restricted creative, so a
+ * country-targeted ad can never leak outside its target when we can't prove the viewer's location —
+ * the advertiser paid to reach Israel, so an unknown viewer is not Israel. Pure + deterministic;
+ * comparison is case-insensitive on the listed codes (stored uppercase, but normalized here anyway).
+ */
+export function matchesGeo(
+  predicate: TargetingPredicate | null | undefined,
+  viewerCountry: string | null | undefined,
+): boolean {
+  const countries = predicate?.countries;
+  if (!countries || countries.length === 0) return true; // untargeted geo → everyone
+  const viewer = normalizeCountry(viewerCountry ?? null);
+  if (!viewer) return false; // restricted, but we can't prove the viewer's country → fail closed
+  return countries.some((c) => c.toUpperCase() === viewer);
 }
 
 // ── dep / file → tag mapping (the curated allowlist the client derives from) ──────────────────────
