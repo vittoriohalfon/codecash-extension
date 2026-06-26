@@ -236,6 +236,22 @@ export class ApiClient {
     }
   }
 
+  /**
+   * POST /api/support — file a support ticket from the client, device-authed. The server resolves the
+   * requester's email from the device token's linked profile, posts the ticket to the support Slack
+   * channel, and emails replies back. NOT part of the money loop — no billing, no ledger. Throws
+   * UnauthorizedError (401: re-link) / ApiError (other) so the caller can fall back to the web form.
+   */
+  async postSupport(message: string, source: "cli" | "extension" = "cli"): Promise<void> {
+    const res = await this.fetchImpl(`${this.base()}/api/support`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...this.authHeaders() },
+      body: JSON.stringify({ message, source }),
+    });
+    if (res.status === 401) throw new UnauthorizedError(await errorCode(res));
+    if (!res.ok) throw new ApiError(res.status, await errorCode(res));
+  }
+
   /** GET /api/me/earnings — device-authed dev earnings (µUSD) for the status-bar widget (cold start). */
   async fetchEarnings(): Promise<EarningsSnapshot> {
     const res = await this.fetchImpl(`${this.base()}/api/me/earnings`, {

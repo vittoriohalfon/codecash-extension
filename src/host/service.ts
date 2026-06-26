@@ -382,12 +382,41 @@ export class CodecashService {
   }
 
   /**
-   * Open the web support form (Contact support). Public, no-login page; `?from=extension` tags the
-   * ticket source. The whole conversation then happens by email — the extension is just the doorway,
-   * so it never handles support content itself (no settings touched, money loop untouched).
+   * Contact support. When linked, file the ticket natively: prompt for a message and POST it
+   * device-authed to /api/support — the server resolves the account email from the device token, posts
+   * the ticket to the support Slack channel, and emails replies back. Falls back to the web form when
+   * there's no token or the post fails, so support is always reachable. The conversation then happens
+   * by email — the extension is just the doorway (no settings touched, money loop untouched).
    */
   async contactSupport(): Promise<void> {
-    await vscode.env.openExternal(vscode.Uri.parse(`${this.baseUrl()}/support?from=extension`));
+    const openWebForm = async (note?: string): Promise<void> => {
+      if (note) void vscode.window.showInformationMessage(`codecash: ${note}`);
+      await vscode.env.openExternal(vscode.Uri.parse(`${this.baseUrl()}/support?from=extension`));
+    };
+
+    // Not linked → no device identity to attribute the ticket to; the web form collects an email.
+    if (!this.auth.hasToken()) {
+      await openWebForm();
+      return;
+    }
+
+    const message = await vscode.window.showInputBox({
+      title: "Contact codecash support",
+      prompt: "Describe your issue — we'll reply by email to the address on your account.",
+      placeHolder: "What's going wrong?",
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.trim().length >= 2 ? null : "Please add a bit more detail."),
+    });
+    if (message === undefined) return; // dismissed
+    const text = message.trim();
+    if (!text) return;
+
+    try {
+      await this.api.postSupport(text, "extension");
+      void vscode.window.showInformationMessage("codecash: support ticket sent — we'll reply by email.");
+    } catch {
+      await openWebForm("couldn't send directly — opening the web form instead.");
+    }
   }
 
   /** Prompt for a pasted token (no browser reopen). Returns true if a token was stored. */
