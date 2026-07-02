@@ -4,6 +4,14 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.2.2] — 2026-07-02
+
+### Changed
+- **The Marketplace listing now links to codecash.dev.** The extension's Homepage and README point
+  to the codecash.dev site — your live earnings dashboard, cash-out, and the transparency page
+  (exactly what leaves your machine and what never does) — instead of only the source repo. No
+  behavior change.
+
 ## [0.2.1] — 2026-07-02
 
 ### Fixed

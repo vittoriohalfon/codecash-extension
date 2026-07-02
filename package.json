@@ -2,13 +2,13 @@
   "name": "codecash",
   "displayName": "codecash — get paid to vibe code",
   "description": "Get paid to vibe code — keep 70% of the revenue from one tasteful sponsored line in your AI coding agent's wait states. Never reads your code; off in one click.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": false,
   "type": "module",
   "publisher": "codecash",
   "license": "SEE LICENSE IN LICENSE.txt",
   "icon": "media/icon.png",
-  "homepage": "https://github.com/vittoriohalfon/codecash-extension#readme",
+  "homepage": "https://www.codecash.dev",
   "repository": {
     "type": "git",
     "url": "https://github.com/vittoriohalfon/codecash-extension.git"
