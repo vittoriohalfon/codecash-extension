@@ -58,11 +58,12 @@ export function writeFileAtomic(
   data: string,
   opts: WriteFileAtomicOptions = {},
 ): void {
-  mkdirSync(dirname(path), { recursive: true });
   // UNIQUE per write (pid + random) so two windows targeting the same file never share a temp — the
   // root cause of the cross-window ENOENT race + silent lost updates (defect #1).
   const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  try {
+  // Materialize the dir + temp. Called both up front and again on an ENOENT rename (temp vanished).
+  const writeTemp = (): void => {
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(tmp, data, opts.mode !== undefined ? { encoding: "utf8", mode: opts.mode } : "utf8");
     if (opts.mode !== undefined) {
       // Belt-and-suspenders: reset the mode in case the temp somehow pre-existed with a looser one.
@@ -72,6 +73,9 @@ export function writeFileAtomic(
         /* best-effort */
       }
     }
+  };
+  try {
+    writeTemp();
     for (let attempt = 0; ; attempt++) {
       try {
         renameSync(tmp, path); // atomic replace on POSIX; MoveFileEx(REPLACE_EXISTING) on Windows
@@ -79,6 +83,12 @@ export function writeFileAtomic(
       } catch (e) {
         const code = (e as NodeJS.ErrnoException).code ?? "";
         if (!RETRYABLE_RENAME_CODES.has(code) || attempt >= RENAME_RETRY_DELAYS_MS.length) throw e;
+        // An ENOENT rename means the temp (or its dir) disappeared mid-flight — antivirus quarantining
+        // the freshly-written temp, or a cleanup wiping ~/.codecash. Retrying the SAME rename can only
+        // ENOENT again (this was the persistent `rename '<tmp>' -> '<file>'` error in the wild), so
+        // re-materialize the dir + temp before the next attempt. Lock codes (EPERM/EBUSY/EACCES) leave
+        // the temp intact — just back off and retry.
+        if (code === "ENOENT") writeTemp();
         sleepSync(RENAME_RETRY_DELAYS_MS[attempt]!); // ride out a transient Windows lock / AV scan (defect #2)
       }
     }

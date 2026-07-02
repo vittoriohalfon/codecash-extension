@@ -4,6 +4,17 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.2.1] — 2026-07-02
+
+### Fixed
+- **More reliable settings and ad-cache writes when antivirus or another tool is scanning files.**
+  Saving the spinner/status-line config or refreshing the cached ad could fail with a transient
+  "no such file" error if security software removed codecash's temporary file mid-write (most common
+  on Windows). The write now re-creates and retries it, so enabling and ad refresh ride out the race.
+- **Quieter, deduplicated crash reporting.** A single stuck session (for example, a settings file
+  codecash can't parse) no longer re-reports the same error hundreds of times, and expected states —
+  a cancelled action, or settings.json having unsaved edits — are no longer logged as errors.
+
 ## [0.2.0] — 2026-06-18
 
 ### Fixed
