@@ -252,3 +252,47 @@ export function normalizeCountry(input: string | null | undefined): string | nul
 
 /** Zod enum over the closed country allowlist (uppercase codes). */
 export const CountryCodeSchema = z.enum(COUNTRY_CODES);
+
+/**
+ * Countries where a dev can be paid via the **lightweight Accounts v2 `recipient`** model — created from
+ * the GB platform, funded by a `transfers.create` from the GB balance, then paid to the dev's bank.
+ * Deliberately the **clean individual-payee set only**: GB + Switzerland + the EEA (EU-27 + Liechtenstein,
+ * Norway). A dev outside this set is GRACEFULLY GATED ("payouts currently support these regions"), never
+ * told their country is "invalid". Uppercase ISO alpha-2, matching COUNTRIES.
+ *
+ * **US + Canada are intentionally EXCLUDED (decided 2026-07-04).** Their v2 recipient can't request
+ * `stripe_transfers` without also taking the `merchant.card_payments` capability — i.e. Stripe forces a
+ * *merchant* account, which is the wrong (and heavier) shape for individuals who only RECEIVE payouts.
+ * The right model for paying US/CA individuals is Stripe **Global Payouts** (a separate integration,
+ * deferred). **Iceland is also excluded** — its recipient `stripe_transfers` capability isn't creatable
+ * from the GB platform at all.
+ */
+export const PAYOUT_SUPPORTED_COUNTRY_CODES: readonly string[] = [
+  "GB",
+  "CH",
+  // EEA — the EU-27
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
+  "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+  // EEA non-EU members (Iceland excluded — not creatable).
+  "LI", "NO",
+] as const;
+
+const PAYOUT_SUPPORTED_SET: ReadonlySet<string> = new Set(PAYOUT_SUPPORTED_COUNTRY_CODES);
+
+/**
+ * True iff `code` (case-insensitive alpha-2) is a country Stripe payouts can reach. The payout onboarding
+ * route gates on this: an unsupported (but otherwise valid) country is a PRODUCT gate, not a validation
+ * error. Never throws.
+ */
+export function isPayoutSupportedCountry(code: unknown): code is string {
+  return typeof code === "string" && PAYOUT_SUPPORTED_SET.has(code.toUpperCase());
+}
+
+/**
+ * The payout-supported countries as `{ code, name }`, sorted by name (COUNTRIES is already name-sorted,
+ * so filtering preserves the order) — the single source the payout country picker renders from, so the
+ * UI options can't drift from what `isPayoutSupportedCountry` accepts server-side.
+ */
+export const PAYOUT_SUPPORTED_COUNTRIES: readonly Country[] = COUNTRIES.filter((c) =>
+  PAYOUT_SUPPORTED_SET.has(c.code),
+);
