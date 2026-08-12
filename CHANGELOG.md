@@ -4,6 +4,24 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.3.0] — 2026-08-06
+
+### Changed
+- **codecash has paused ad serving, and this release turns ads off.** On first run it restores your
+  original Claude Code settings: the `spinnerVerbs` ad and the `statusLine` entry are removed from
+  `~/.claude/settings.json`, any status line you had beforehand is put back exactly as it was, and the
+  VS Code `claudeCode.spinnerVerbs` setting the Claude Code panel reads is returned to its original
+  value (or removed, if you never had one). Backups also remain in `~/.codecash/`.
+- **This build cannot show an ad.** The serving code is not shipped in it — it makes no network
+  requests at all. Uninstalling is optional and also restores your settings.
+- **Every `codecash:` command now explains the pause and links to cash-out.** Commands that no longer
+  apply are unlisted but still respond, so an existing keybinding won't error.
+
+### Your earnings
+- **Anything you already earned is safe and still withdrawable** at
+  [codecash.dev](https://www.codecash.dev/app/dashboard). If you also installed the standalone CLI,
+  remove it with `npm rm -g @codecash/cli`.
+
 ## [0.2.2] — 2026-07-02
 
 ### Changed

@@ -1,8 +1,8 @@
 {
   "name": "codecash",
-  "displayName": "codecash — get paid to vibe code",
-  "description": "Get paid to vibe code — keep 70% of the revenue from one tasteful sponsored line in your AI coding agent's wait states. Never reads your code; off in one click.",
-  "version": "0.2.2",
+  "displayName": "codecash (paused)",
+  "description": "codecash has paused ad serving. This update turns off ad injection and restores your original Claude Code settings. Accrued earnings remain available to cash out at codecash.dev.",
+  "version": "0.3.0",
   "private": false,
   "type": "module",
   "publisher": "codecash",
@@ -44,102 +44,15 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "_commandsNote": "SUNSET BUILD: only the two commands that still mean something are LISTED here. The other six (connect/enable/signIn/signOut/shareEarnings/contactSupport) are still REGISTERED in src/sunset.ts so an existing keybinding or a palette-history invocation resolves to the sunset notice instead of throwing 'command not found' — they're just no longer advertised. The old commandPalette `when` clauses were removed with them: they keyed on contexts this build never sets, which would have hidden 'Disable' while leaving 'Connect & start earning' visible.",
     "commands": [
       {
-        "command": "codecash.connect",
-        "title": "codecash: Connect & start earning"
-      },
-      {
-        "command": "codecash.enable",
-        "title": "codecash: Enable ad injection"
+        "command": "codecash.status",
+        "title": "codecash: About the pause / cash out"
       },
       {
         "command": "codecash.disable",
-        "title": "codecash: Disable ad injection (restore settings)"
-      },
-      {
-        "command": "codecash.signIn",
-        "title": "codecash: Sign in with a token (paste)"
-      },
-      {
-        "command": "codecash.signOut",
-        "title": "codecash: Sign out"
-      },
-      {
-        "command": "codecash.status",
-        "title": "codecash: Show earnings"
-      },
-      {
-        "command": "codecash.shareEarnings",
-        "title": "codecash: Share earnings & invite a dev"
-      },
-      {
-        "command": "codecash.contactSupport",
-        "title": "codecash: Contact support"
-      }
-    ],
-    "menus": {
-      "commandPalette": [
-        {
-          "command": "codecash.connect",
-          "when": "!codecash:sessionLive"
-        },
-        {
-          "command": "codecash.signIn",
-          "when": "!codecash:sessionLive"
-        },
-        {
-          "command": "codecash.enable",
-          "when": "codecash:sessionLive && !codecash:enabled"
-        },
-        {
-          "command": "codecash.disable",
-          "when": "codecash:enabled"
-        },
-        {
-          "command": "codecash.signOut",
-          "when": "codecash:signedIn"
-        },
-        {
-          "command": "codecash.status",
-          "when": "codecash:signedIn"
-        },
-        {
-          "command": "codecash.shareEarnings",
-          "when": "codecash:signedIn"
-        }
-      ]
-    },
-    "walkthroughs": [
-      {
-        "id": "codecashStart",
-        "title": "Get paid to vibe code",
-        "description": "Connect codecash and earn a revenue share on the one ad shown in your AI agent's wait states.",
-        "steps": [
-          {
-            "id": "connect",
-            "title": "Connect & start earning",
-            "description": "One click links this editor to your codecash account in the browser, then turns on ad injection automatically — no copy-paste, no command palette.\n[Connect & start earning](command:codecash.connect)",
-            "media": {
-              "markdown": "walkthroughs/connect.md"
-            },
-            "completionEvents": [
-              "onContext:codecash:enabled",
-              "onSettingChanged:codecash.enabled"
-            ]
-          },
-          {
-            "id": "manage",
-            "title": "Track earnings & stay in control",
-            "description": "The status-bar item shows today's earnings and your on/off state. Your `~/.claude/settings.json` is backed up when you enable and restored exactly by **codecash: Disable ad injection**.\n[Show earnings](command:codecash.status)",
-            "media": {
-              "markdown": "walkthroughs/enable.md"
-            },
-            "completionEvents": [
-              "onCommand:codecash.status"
-            ]
-          }
-        ]
+        "title": "codecash: Restore my Claude Code settings"
       }
     ],
     "configuration": {
