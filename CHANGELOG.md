@@ -4,6 +4,14 @@ All notable changes to the **codecash** extension are documented here. This proj
 [Semantic Versioning](https://semver.org/) and the [Keep a Changelog](https://keepachangelog.com/)
 format.
 
+## [0.3.1] — 2026-08-07
+
+### Fixed
+- **Corrected the command for removing the companion command-line app.** 0.3.0 told you to run
+  `npm rm -g @codecash/cli`, which doesn't match anything — the CLI is published under the name
+  **`codecash`**. The right command is `npm rm -g codecash` (or `npm i -g codecash@latest` to update
+  it). Only the instructions were wrong; nothing about the settings restore changed.
+
 ## [0.3.0] — 2026-08-06
 
 ### Changed
@@ -20,7 +28,7 @@ format.
 ### Your earnings
 - **Anything you already earned is safe and still withdrawable** at
   [codecash.dev](https://www.codecash.dev/app/dashboard). If you also installed the standalone CLI,
-  remove it with `npm rm -g @codecash/cli`.
+  remove it with `npm rm -g codecash`.
 
 ## [0.2.2] — 2026-07-02
 

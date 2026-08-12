@@ -2,7 +2,7 @@
   "name": "codecash",
   "displayName": "codecash (paused)",
   "description": "codecash has paused ad serving. This update turns off ad injection and restores your original Claude Code settings. Accrued earnings remain available to cash out at codecash.dev.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "type": "module",
   "publisher": "codecash",

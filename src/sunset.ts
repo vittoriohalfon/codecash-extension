@@ -52,7 +52,7 @@ const DETAIL =
  *  extension alone would leave the CLI injecting on its own. */
 const CLI_STILL_INSTALLED =
   " The codecash CLI is also installed on this machine and still owns your Claude Code status line — " +
-  "remove it with `npm rm -g @codecash/cli`.";
+  "remove it with `npm rm -g codecash`.";
 
 function message(restore: RestoreResult): string {
   return HEADLINE + " " + DETAIL + (restore.terminalRestored ? "" : CLI_STILL_INSTALLED);
